@@ -1,40 +1,63 @@
 --[[
-    GROW A GARDEN AUTO HUB V6.9
+    GROW A GARDEN AUTO HUB V7.0
     Delta Android
 
-    FEATURES:
-    - Auto Buy ALL Normal Seeds
-    - Auto Buy ALL Normal Gear
-    - Auto Buy ALL Normal Eggs
-    - Auto Harvest
-    - Auto Sell
+    NORMAL SHOPS
+    - Auto Buy ALL Seeds
+    - Auto Buy ALL Gear
+    - Auto Buy ALL Eggs
+
+    FARM
+    - Instant Collect
+    - Auto Sell Entire Inventory
+
+    HALLOWEEN
     - Auto Buy ALL Scary Seeds
     - Auto Buy Selected Frightening Fauna
     - Auto Buy Selected Demonic Decor
 
-    EXCLUDED:
+    EXCLUDED
     - Normal Cosmetics
     - Pumpkin Crate
 
-    LOCKED:
-    - Haunted Stall (once-only pending verification)
+    LOCKED
+    - Haunted Stall
 
-    All toggles default OFF.
+    All toggles start OFF.
 ]]
 
 local Players = game:GetService("Players")
 local RS = game:GetService("ReplicatedStorage")
+local UIS = game:GetService("UserInputService")
 
 local player = Players.LocalPlayer
 local pg = player:WaitForChild("PlayerGui")
 local events = RS:WaitForChild("GameEvents")
 
--- Remove older hub versions
+-- Stop a previous V7.0 instance.
+-- This prevents duplicate background loops.
+
+local globalEnv = (getgenv and getgenv()) or _G
+
+if globalEnv.GAG_AutoHub_Stop then
+    pcall(globalEnv.GAG_AutoHub_Stop)
+end
+
+local alive = true
+local toggles = {}
+local baselines = {}
+
+globalEnv.GAG_AutoHub_Stop = function()
+    alive = false
+end
+
+-- Remove older hub windows
 
 for _, name in ipairs({
     "GAG_AutoHub_V67",
     "GAG_AutoHub_V68",
-    "GAG_AutoHub_V69"
+    "GAG_AutoHub_V69",
+    "GAG_AutoHub_V70"
 }) do
     local old = pg:FindFirstChild(name)
     if old then
@@ -42,17 +65,13 @@ for _, name in ipairs({
     end
 end
 
-local alive = true
-local toggles = {}
-local baselines = {}
-
 -- Remote helper
 
 local function fire(remoteName, ...)
     local remote = events:FindFirstChild(remoteName)
 
     if not remote then
-        warn("[GAG V6.9] Missing remote:", remoteName)
+        warn("[GAG V7.0] Missing remote:", remoteName)
         return false
     end
 
@@ -65,21 +84,21 @@ local function fire(remoteName, ...)
     end)
 
     if not ok then
-        warn("[GAG V6.9]", err)
+        warn("[GAG V7.0]", err)
     end
 
     return ok
 end
 
--- Parse stock label
+-- Parse stock labels such as X2 Stock
 
-local function parseStock(text)
-    if type(text) ~= "string" then
+local function parseStock(value)
+    if type(value) ~= "string" then
         return nil
     end
 
     return tonumber(
-        text:match("[Xx]%s*(%d+)%s*[Ss]tock")
+        value:match("[Xx]%s*(%d+)%s*[Ss]tock")
     )
 end
 
@@ -116,7 +135,7 @@ local function normalStock(guiName)
     return result
 end
 
--- Normal shop auto-buy
+-- Normal shop auto-buyer
 
 local function buyNormal(
     key,
@@ -133,13 +152,10 @@ local function buyNormal(
 
     for name, qty in pairs(current) do
         local oldQty = previous[name]
-        local amount
 
-        if oldQty == nil then
-            amount = qty
-        else
-            amount = math.max(0, qty - oldQty)
-        end
+        local amount = oldQty == nil
+            and qty
+            or math.max(0, qty - oldQty)
 
         if amount > 0 then
             for i = 1, math.min(amount, 100) do
@@ -163,15 +179,15 @@ end
 
 local function halloweenShopRoots()
     local roots = {}
-    local eventsGui = pg:FindFirstChild("Events")
+    local eventFolder = pg:FindFirstChild("Events")
 
-    if eventsGui then
-        local oldHalloween = eventsGui:FindFirstChild(
+    if eventFolder then
+        local oldEvent = eventFolder:FindFirstChild(
             "HalloweenEvent"
         )
 
-        if oldHalloween then
-            local shop = oldHalloween:FindFirstChild(
+        if oldEvent then
+            local shop = oldEvent:FindFirstChild(
                 "HalloweenEventShop_UI"
             )
 
@@ -180,13 +196,13 @@ local function halloweenShopRoots()
             end
         end
 
-        local newHalloween = eventsGui:FindFirstChild(
+        local newEvent = eventFolder:FindFirstChild(
             "Halloween2026Event"
         )
 
-        if newHalloween then
+        if newEvent then
             for _, obj in ipairs(
-                newHalloween:GetDescendants()
+                newEvent:GetDescendants()
             ) do
                 if obj:IsA("ScreenGui")
                     and obj.Name:lower():find("shop") then
@@ -251,7 +267,7 @@ local function halloweenStock()
     return result
 end
 
--- Halloween selected items
+-- Halloween item selections
 
 local scarySeeds = {
     ["Halloween Candy Corn Carrot"] = true,
@@ -278,8 +294,7 @@ local demonicDecor = {
     ["Haunted Well"] = true
 }
 
--- Halloween auto-buy
--- Each category tracks stock independently.
+-- Halloween auto-buyer
 
 local function buyHalloweenCategory(
     key,
@@ -299,13 +314,10 @@ local function buyHalloweenCategory(
 
         if qty ~= nil then
             local oldQty = previous[name]
-            local amount
 
-            if oldQty == nil then
-                amount = qty
-            else
-                amount = math.max(0, qty - oldQty)
-            end
+            local amount = oldQty == nil
+                and qty
+                or math.max(0, qty - oldQty)
 
             if amount > 0 then
                 for i = 1, math.min(amount, 100) do
@@ -328,9 +340,44 @@ local function buyHalloweenCategory(
     baselines[key] = nextBaseline
 end
 
--- Inventory capacity
+-- Correct farm detection
+-- Confirmed path:
+-- Farm.Important.Data.Owner
 
-local function inventoryFull()
+local function getMyFarm()
+    local farms = workspace:FindFirstChild("Farm")
+
+    if not farms then
+        return nil
+    end
+
+    for _, farm in ipairs(farms:GetChildren()) do
+        local important = farm:FindFirstChild("Important")
+        local data = important and important:FindFirstChild(
+            "Data"
+        )
+
+        local owner = data and data:FindFirstChild("Owner")
+
+        if owner then
+            local value = owner.Value
+
+            if value == player
+                or tostring(value) == player.Name
+                or tostring(value) == tostring(player.UserId) then
+
+                return farm
+            end
+        end
+    end
+
+    return nil
+end
+
+-- Fruit inventory capacity
+-- Looks for "Fruit Items (54/250)"
+
+local function getFruitCapacity()
     for _, obj in ipairs(pg:GetDescendants()) do
         if obj:IsA("TextLabel") then
             local current, maximum = obj.Text:match(
@@ -338,44 +385,45 @@ local function inventoryFull()
             )
 
             if current and maximum then
-                return tonumber(current) >= tonumber(maximum)
+                return tonumber(current), tonumber(maximum)
             end
         end
+    end
+
+    return nil, nil
+end
+
+local function inventoryFull()
+    local current, maximum = getFruitCapacity()
+
+    if current and maximum then
+        return current >= maximum
     end
 
     return false
 end
 
--- Auto Harvest
+-- INSTANT COLLECT V7.0
+-- Uses the tested batch collection method.
+-- Up to 20 fruits per request.
 
-local function harvest()
+local function instantCollect()
+    if not toggles.harvest or not alive then
+        return
+    end
+
     if inventoryFull() then
         return
     end
 
-    local farms = workspace:FindFirstChild("Farm")
-    if not farms then
+    local farm = getMyFarm()
+
+    if not farm then
+        warn("[GAG V7.0] Your farm not found")
         return
     end
 
-    local ownFarm
-
-    for _, farm in ipairs(farms:GetChildren()) do
-        local owner = farm:FindFirstChild("Owner")
-
-        if owner
-            and tostring(owner.Value) == player.Name then
-
-            ownFarm = farm
-            break
-        end
-    end
-
-    if not ownFarm then
-        return
-    end
-
-    local important = ownFarm:FindFirstChild("Important")
+    local important = farm:FindFirstChild("Important")
     local plants = important and important:FindFirstChild(
         "Plants_Physical"
     )
@@ -385,48 +433,93 @@ local function harvest()
     end
 
     local crops = events:FindFirstChild("Crops")
-    local collect = crops and crops:FindFirstChild("Collect")
+    local collect = crops and crops:FindFirstChild(
+        "Collect"
+    )
 
     if not collect then
         return
     end
 
-    local sent = 0
+    local batch = {}
+    local batchesSent = 0
+    local maxBatchesPerCycle = 5
+    local batchSize = 20
+
+    local function sendBatch()
+        if #batch == 0 then
+            return
+        end
+
+        if not alive
+            or not toggles.harvest
+            or inventoryFull() then
+
+            batch = {}
+            return
+        end
+
+        local request = batch
+        batch = {}
+
+        local ok, err = pcall(function()
+            collect:FireServer(request)
+        end)
+
+        if not ok then
+            warn("[GAG V7.0] Collect error:", err)
+        end
+
+        batchesSent += 1
+
+        task.wait(0.35)
+    end
 
     for _, plant in ipairs(plants:GetChildren()) do
+        if not alive or not toggles.harvest then
+            break
+        end
+
+        if inventoryFull() then
+            break
+        end
+
         local fruits = plant:FindFirstChild("Fruits")
 
         if fruits then
             for _, fruit in ipairs(fruits:GetChildren()) do
+                if not alive or not toggles.harvest then
+                    break
+                end
+
                 if fruit:IsA("Model") then
-                    local prompt = fruit:FindFirstChildWhichIsA(
-                        "ProximityPrompt",
-                        true
-                    )
+                    table.insert(batch, fruit)
 
-                    if prompt and prompt.Enabled then
-                        pcall(function()
-                            collect:FireServer({fruit})
-                        end)
+                    if #batch >= batchSize then
+                        sendBatch()
 
-                        sent += 1
-
-                        if sent >= 10
-                            or not toggles.harvest
-                            or not alive then
+                        if batchesSent >= maxBatchesPerCycle then
                             return
                         end
 
-                        task.wait(0.2)
+                        if inventoryFull() then
+                            return
+                        end
                     end
                 end
             end
         end
     end
+
+    if #batch > 0
+        and batchesSent < maxBatchesPerCycle then
+
+        sendBatch()
+    end
 end
 
 -- Auto Sell
--- Sells the entire inventory.
+-- Sells entire inventory when enabled.
 
 local function sell()
     local ev = events:FindFirstChild("Events")
@@ -445,33 +538,33 @@ local function sell()
     end
 end
 
--- Main GUI
+-- GUI
 
 local gui = Instance.new("ScreenGui")
-gui.Name = "GAG_AutoHub_V69"
+gui.Name = "GAG_AutoHub_V70"
 gui.ResetOnSpawn = false
 gui.Parent = pg
 
 local panel = Instance.new("Frame")
-panel.Size = UDim2.fromOffset(290, 355)
-panel.Position = UDim2.new(0.5, -145, 0.17, 0)
+panel.Size = UDim2.fromOffset(295, 355)
+panel.Position = UDim2.new(0.5, -147, 0.17, 0)
 panel.BackgroundColor3 = Color3.fromRGB(25, 29, 40)
 panel.Active = true
-panel.Draggable = true
 panel.Parent = gui
 
 Instance.new("UICorner", panel).CornerRadius =
     UDim.new(0, 10)
 
 local header = Instance.new("TextLabel")
-header.Size = UDim2.new(1, -76, 0, 36)
+header.Size = UDim2.new(1, -75, 0, 36)
 header.Position = UDim2.fromOffset(10, 0)
 header.BackgroundTransparency = 1
-header.Text = "GAG AUTO HUB V6.9"
+header.Text = "GAG AUTO HUB V7.0"
 header.TextColor3 = Color3.new(1, 1, 1)
 header.Font = Enum.Font.GothamBold
 header.TextSize = 15
 header.TextXAlignment = Enum.TextXAlignment.Left
+header.Active = true
 header.Parent = panel
 
 local function topButton(text, x)
@@ -490,8 +583,8 @@ local function topButton(text, x)
     return b
 end
 
-local minimize = topButton("_", 229)
-local close = topButton("X", 259)
+local minimize = topButton("_", 233)
+local close = topButton("X", 263)
 
 local scroller = Instance.new("ScrollingFrame")
 scroller.Position = UDim2.fromOffset(7, 40)
@@ -505,6 +598,8 @@ scroller.Parent = panel
 local layout = Instance.new("UIListLayout")
 layout.Padding = UDim.new(0, 6)
 layout.Parent = scroller
+
+-- Toggle rows
 
 local function row(key, label, disabled)
     toggles[key] = false
@@ -550,12 +645,11 @@ end
 row("seeds", "Normal Seeds - Buy ALL")
 row("gear", "Normal Gear - Buy ALL")
 row("eggs", "Normal Eggs - Buy ALL")
-row("harvest", "Auto Harvest")
+row("harvest", "Instant Collect - Auto Harvest")
 row("sell", "Auto Sell - Entire Inventory")
 row("scary", "Scary Seeds - Buy ALL")
 row("fauna", "Frightening Fauna - 3 Selected")
 row("decor", "Demonic Decor - 3 Selected")
-
 row("stall", "Haunted Stall - Once Only", true)
 
 local note = Instance.new("TextLabel")
@@ -565,11 +659,53 @@ note.TextWrapped = true
 note.TextSize = 11
 note.TextColor3 = Color3.fromRGB(200, 205, 215)
 note.Text =
-    "V6.9: Demonic Decor unlocked. "
-    .. "Spooky Crate, Haunted Crate, Haunted Well. "
-    .. "Haunted Stall locked. "
-    .. "Normal Cosmetics excluded."
+    "V7.0: Instant Collect uses your confirmed farm "
+    .. "and batches up to 20 fruits. "
+    .. "Haunted Stall locked. Cosmetics excluded."
 note.Parent = scroller
+
+-- Android touch dragging
+
+local dragging = false
+local dragStart
+local startPos
+local dragInput
+
+header.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.Touch
+        or input.UserInputType == Enum.UserInputType.MouseButton1 then
+
+        dragging = true
+        dragStart = input.Position
+        startPos = panel.Position
+        dragInput = input
+
+        input.Changed:Connect(function()
+            if input.UserInputState == Enum.UserInputState.End then
+                dragging = false
+            end
+        end)
+    end
+end)
+
+header.InputChanged:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseMovement then
+        dragInput = input
+    end
+end)
+
+UIS.InputChanged:Connect(function(input)
+    if dragging and input == dragInput then
+        local delta = input.Position - dragStart
+
+        panel.Position = UDim2.new(
+            startPos.X.Scale,
+            startPos.X.Offset + delta.X,
+            startPos.Y.Scale,
+            startPos.Y.Offset + delta.Y
+        )
+    end
+end)
 
 -- Minimize / restore
 
@@ -579,11 +715,11 @@ minimize.MouseButton1Click:Connect(function()
     scroller.Visible = not expanded
 
     panel.Size = expanded
-        and UDim2.fromOffset(290, 36)
-        or UDim2.fromOffset(290, 355)
+        and UDim2.fromOffset(295, 36)
+        or UDim2.fromOffset(295, 355)
 end)
 
--- Close
+-- Close and stop loops
 
 close.MouseButton1Click:Connect(function()
     alive = false
@@ -648,19 +784,19 @@ task.spawn(function()
     end
 end)
 
--- Harvest loop
+-- Instant Collect loop
 
 task.spawn(function()
     while alive and gui.Parent do
         if toggles.harvest then
-            pcall(harvest)
+            pcall(instantCollect)
         end
 
-        task.wait(3)
+        task.wait(2)
     end
 end)
 
--- Sell loop
+-- Auto Sell loop
 
 task.spawn(function()
     while alive and gui.Parent do
@@ -672,4 +808,5 @@ task.spawn(function()
     end
 end)
 
-print("[GAG AUTO HUB V6.9] Loaded successfully")
+print("[GAG AUTO HUB V7.0] Loaded successfully")
+
