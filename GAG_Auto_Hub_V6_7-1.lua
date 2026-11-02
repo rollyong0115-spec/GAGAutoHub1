@@ -1,29 +1,25 @@
-
 --[[
-    GROW A GARDEN AUTO HUB V6.8
+    GROW A GARDEN AUTO HUB V6.9
     Delta Android
 
-    FIXED:
-    - Haunted Egg stock detection
-    - HalloweenEvent nested GUI path
-    - Separate Halloween category tracking
-    - Compact draggable UI
-    - Minimize / restore
-
     FEATURES:
-    - Auto Buy Normal Seeds
-    - Auto Buy Normal Gear
-    - Auto Buy Normal Eggs
+    - Auto Buy ALL Normal Seeds
+    - Auto Buy ALL Normal Gear
+    - Auto Buy ALL Normal Eggs
     - Auto Harvest
     - Auto Sell
-    - Auto Buy Scary Seeds
-    - Auto Buy Frightening Fauna
+    - Auto Buy ALL Scary Seeds
+    - Auto Buy Selected Frightening Fauna
+    - Auto Buy Selected Demonic Decor
 
-    Normal Cosmetics excluded.
-    Demonic Decor / Haunted Stall disabled
-    until their purchase paths are verified.
+    EXCLUDED:
+    - Normal Cosmetics
+    - Pumpkin Crate
 
-    ALL TOGGLES DEFAULT OFF.
+    LOCKED:
+    - Haunted Stall (once-only pending verification)
+
+    All toggles default OFF.
 ]]
 
 local Players = game:GetService("Players")
@@ -33,11 +29,12 @@ local player = Players.LocalPlayer
 local pg = player:WaitForChild("PlayerGui")
 local events = RS:WaitForChild("GameEvents")
 
--- Remove previous versions
+-- Remove older hub versions
 
 for _, name in ipairs({
     "GAG_AutoHub_V67",
-    "GAG_AutoHub_V68"
+    "GAG_AutoHub_V68",
+    "GAG_AutoHub_V69"
 }) do
     local old = pg:FindFirstChild(name)
     if old then
@@ -48,30 +45,33 @@ end
 local alive = true
 local toggles = {}
 local baselines = {}
-local pending = {}
 
--- Purchase request helper
+-- Remote helper
 
 local function fire(remoteName, ...)
     local remote = events:FindFirstChild(remoteName)
 
     if not remote then
-        warn("[GAG V6.8] Missing remote:", remoteName)
+        warn("[GAG V6.9] Missing remote:", remoteName)
         return false
     end
 
-    local ok, err = pcall(function(...)
-        remote:FireServer(...)
-    end, ...)
+    local args = table.pack(...)
+
+    local ok, err = pcall(function()
+        remote:FireServer(
+            table.unpack(args, 1, args.n)
+        )
+    end)
 
     if not ok then
-        warn("[GAG V6.8]", err)
+        warn("[GAG V6.9]", err)
     end
 
     return ok
 end
 
--- Read a stock label
+-- Parse stock label
 
 local function parseStock(text)
     if type(text) ~= "string" then
@@ -83,7 +83,7 @@ local function parseStock(text)
     )
 end
 
--- Normal shop stock
+-- Normal shop stock scanner
 
 local function normalStock(guiName)
     local result = {}
@@ -117,10 +117,13 @@ local function normalStock(guiName)
 end
 
 -- Normal shop auto-buy
--- Buy current stock when first enabled.
--- Buy additional quantities when stock rises.
 
-local function buyNormal(key, guiName, remoteName, prefix)
+local function buyNormal(
+    key,
+    guiName,
+    remoteName,
+    prefix
+)
     if not toggles[key] then
         return
     end
@@ -130,7 +133,6 @@ local function buyNormal(key, guiName, remoteName, prefix)
 
     for name, qty in pairs(current) do
         local oldQty = previous[name]
-
         local amount
 
         if oldQty == nil then
@@ -157,13 +159,10 @@ local function buyNormal(key, guiName, remoteName, prefix)
     baselines[key] = current
 end
 
--- Halloween shop discovery
--- Includes the exact path confirmed by
--- the Haunted Egg diagnostic scanner.
+-- Halloween shop roots
 
 local function halloweenShopRoots()
     local roots = {}
-
     local eventsGui = pg:FindFirstChild("Events")
 
     if eventsGui then
@@ -209,6 +208,8 @@ local function halloweenShopRoots()
     return roots
 end
 
+-- Halloween stock scanner
+
 local function halloweenStock()
     local result = {}
 
@@ -237,8 +238,6 @@ local function halloweenStock()
                             name = nameLabel.Text
                         end
 
-                        -- Keep the highest detected stock
-                        -- if multiple event UIs list an item.
                         result[name] = math.max(
                             result[name] or 0,
                             qty
@@ -252,7 +251,7 @@ local function halloweenStock()
     return result
 end
 
--- Selected Halloween items
+-- Halloween selected items
 
 local scarySeeds = {
     ["Halloween Candy Corn Carrot"] = true,
@@ -273,10 +272,20 @@ local frighteningFauna = {
     ["Haunted Egg"] = true
 }
 
--- Separate baseline per Halloween category.
--- Avoids one toggle resetting another.
+local demonicDecor = {
+    ["Spooky Crate"] = true,
+    ["Haunted Crate"] = true,
+    ["Haunted Well"] = true
+}
 
-local function buyHalloweenCategory(key, category, selected)
+-- Halloween auto-buy
+-- Each category tracks stock independently.
+
+local function buyHalloweenCategory(
+    key,
+    category,
+    selected
+)
     if not toggles[key] then
         return
     end
@@ -290,7 +299,6 @@ local function buyHalloweenCategory(key, category, selected)
 
         if qty ~= nil then
             local oldQty = previous[name]
-
             local amount
 
             if oldQty == nil then
@@ -437,10 +445,10 @@ local function sell()
     end
 end
 
--- UI
+-- Main GUI
 
 local gui = Instance.new("ScreenGui")
-gui.Name = "GAG_AutoHub_V68"
+gui.Name = "GAG_AutoHub_V69"
 gui.ResetOnSpawn = false
 gui.Parent = pg
 
@@ -459,7 +467,7 @@ local header = Instance.new("TextLabel")
 header.Size = UDim2.new(1, -76, 0, 36)
 header.Position = UDim2.fromOffset(10, 0)
 header.BackgroundTransparency = 1
-header.Text = "GAG AUTO HUB V6.8"
+header.Text = "GAG AUTO HUB V6.9"
 header.TextColor3 = Color3.new(1, 1, 1)
 header.Font = Enum.Font.GothamBold
 header.TextSize = 15
@@ -532,8 +540,6 @@ local function row(key, label, disabled)
             or Color3.fromRGB(45, 50, 65)
 
         if toggles[key] then
-            -- First scan after activation
-            -- buys all currently available stock.
             baselines[key] = {}
         else
             baselines[key] = nil
@@ -548,19 +554,20 @@ row("harvest", "Auto Harvest")
 row("sell", "Auto Sell - Entire Inventory")
 row("scary", "Scary Seeds - Buy ALL")
 row("fauna", "Frightening Fauna - 3 Selected")
+row("decor", "Demonic Decor - 3 Selected")
 
-row("decor", "Demonic Decor", true)
 row("stall", "Haunted Stall - Once Only", true)
 
 local note = Instance.new("TextLabel")
-note.Size = UDim2.new(1, -8, 0, 65)
+note.Size = UDim2.new(1, -8, 0, 75)
 note.BackgroundTransparency = 1
 note.TextWrapped = true
 note.TextSize = 11
 note.TextColor3 = Color3.fromRGB(200, 205, 215)
 note.Text =
-    "V6.8: Haunted Egg detection fixed. "
-    .. "Decor and Stall remain disabled. "
+    "V6.9: Demonic Decor unlocked. "
+    .. "Spooky Crate, Haunted Crate, Haunted Well. "
+    .. "Haunted Stall locked. "
     .. "Normal Cosmetics excluded."
 note.Parent = scroller
 
@@ -583,7 +590,7 @@ close.MouseButton1Click:Connect(function()
     gui:Destroy()
 end)
 
--- Normal shops + Halloween shops
+-- Auto-buy loop
 
 task.spawn(function()
     while alive and gui.Parent do
@@ -629,6 +636,14 @@ task.spawn(function()
             )
         end)
 
+        pcall(function()
+            buyHalloweenCategory(
+                "decor",
+                "Demonic Decor",
+                demonicDecor
+            )
+        end)
+
         task.wait(0.5)
     end
 end)
@@ -657,4 +672,4 @@ task.spawn(function()
     end
 end)
 
-print("[GAG AUTO HUB V6.8] Loaded successfully")
+print("[GAG AUTO HUB V6.9] Loaded successfully")
