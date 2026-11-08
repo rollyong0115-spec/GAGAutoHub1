@@ -1,948 +1,574 @@
 
--- GAG Auto Hub V7.1 | Delta Android
--- All automations start OFF.
--- Profile: set your uploaded Roblox image asset ID below.
-
+-- GAG AUTO HUB V8.2 COMPACT | Delta Android
+-- All automation OFF by default. Back up V7.1 before replacing it.
+-- Anubis crop categories are provisional; verify with event results.
 local PROFILE_IMAGE_ASSET_ID = ""
-
 local Players = game:GetService("Players")
 local RS = game:GetService("ReplicatedStorage")
 local UIS = game:GetService("UserInputService")
-
 local player = Players.LocalPlayer
 local pg = player:WaitForChild("PlayerGui")
 local events = RS:WaitForChild("GameEvents", 12)
-
-if not events then
-    warn("GAG Hub: GameEvents missing")
-    return
-end
-
-local old = pg:FindFirstChild("GAG_AutoHub_V71")
-if old then old:Destroy() end
-
-local previous = getgenv and getgenv().GAG_V71
-if previous then previous.alive = false end
-
+if not events then warn("GAG V8.2: GameEvents missing") return end
+local env = (getgenv and getgenv()) or _G
+if type(env.GAG_V8_Close) == "function" then pcall(env.GAG_V8_Close) end
 local state = {
-    alive = true,
-    minimized = false,
-    count = 0,
-    capacity = 250,
-    lastSell = 0,
-    lastHarvest = 0,
-    lastBuy = 0,
-    lastNormal = 0,
-    log = "Ready",
-    switches = {}
+    alive=true, switches={}, connections={}, logLines={}, lastLog="Ready",
+    count=0, capacity=250, inventoryKnown=false,
+    lastNormal=0, lastAnubisHarvest=0,
+    lastSubmit=0, lastRestart=0, pending=nil, token=math.random(100000,900000),
+    submitted=0, accepted=0, harvestBatches=0, restarts=0,
+    trait="?", stage="?", eventStatus="Stopped", restartBusy=false,
+    done=false, lastResult=0, restartFault=false
 }
-
-if getgenv then
-    getgenv().GAG_V71 = state
-end
-
-local function remote(path)
-    local obj = events
-    for part in path:gmatch("[^/]+") do
-        obj = obj and obj:FindFirstChild(part)
-    end
+env.GAG_V8 = state
+local function new(class, props, parent)
+    local obj=Instance.new(class)
+    for k,v in pairs(props or {}) do obj[k]=v end
+    obj.Parent=parent
     return obj
 end
-
-local function fire(path, ...)
-    local r = remote(path)
-    if not r or not r:IsA("RemoteEvent") then
-        return false
-    end
-    return pcall(r.FireServer, r, ...)
+local function connect(signal, fn)
+    local c=signal:Connect(fn)
+    state.connections[#state.connections+1]=c
+    return c
 end
-
 local function log(s)
-    state.log = s
+    s=tostring(s)
+    state.lastLog=s
+    state.logLines[#state.logLines+1]=os.date("%H:%M:%S").." "..s
+    if #state.logLines>120 then table.remove(state.logLines,1) end
 end
-
-local function new(class, props, parent)
-    local x = Instance.new(class)
-    for k, v in pairs(props or {}) do
-        x[k] = v
-    end
-    x.Parent = parent
-    return x
+local function remote(path)
+    local obj=events
+    for part in path:gmatch("[^/]+") do obj=obj and obj:FindFirstChild(part) end
+    return obj
 end
-
-local C = {
-    bg = Color3.fromRGB(14, 12, 25),
-    panel = Color3.fromRGB(28, 23, 43),
-    tile = Color3.fromRGB(37, 29, 55),
-    accent = Color3.fromRGB(166, 86, 255),
-    white = Color3.fromRGB(244, 235, 255),
-    muted = Color3.fromRGB(175, 162, 192),
-    green = Color3.fromRGB(106, 241, 164)
+local function fire(path,...)
+    local r=remote(path)
+    if not r or not r:IsA("RemoteEvent") then return false end
+    return pcall(r.FireServer,r,...)
+end
+local C={
+    bg=Color3.fromRGB(14,12,25),
+    panel=Color3.fromRGB(28,23,43),
+    tile=Color3.fromRGB(37,29,55),
+    accent=Color3.fromRGB(166,86,255),
+    white=Color3.fromRGB(244,235,255),
+    muted=Color3.fromRGB(175,162,192),
+    green=Color3.fromRGB(106,241,164),
+    red=Color3.fromRGB(130,48,76)
 }
-
-local function corner(o, r)
-    new("UICorner", {
-        CornerRadius = UDim.new(0, r or 10)
-    }, o)
+local function corner(o,r)
+    new("UICorner",{CornerRadius=UDim.new(0,r or 7)},o)
 end
-
-local function stroke(o)
-    new("UIStroke", {
-        Color = C.accent,
-        Thickness = 1,
-        Transparency = 0.35
-    }, o)
-end
-
--- MAIN GUI
-
-local gui = new("ScreenGui", {
-    Name = "GAG_AutoHub_V71",
-    ResetOnSpawn = false,
-    IgnoreGuiInset = true,
-    DisplayOrder = 900
-}, pg)
-
-local main = new("Frame", {
-    Size = UDim2.fromOffset(332, 454),
-    Position = UDim2.new(0.5, -166, 0.5, -227),
-    BackgroundColor3 = C.bg,
-    BorderSizePixel = 0,
-    Active = true
-}, gui)
-
-corner(main, 15)
-stroke(main)
-
-local header = new("Frame", {
-    Size = UDim2.new(1, 0, 0, 66),
-    BackgroundColor3 = C.panel,
-    BorderSizePixel = 0,
-    Active = true
-}, main)
-
-corner(header, 15)
-
-local avatarSource =
-    PROFILE_IMAGE_ASSET_ID ~= ""
-    and PROFILE_IMAGE_ASSET_ID
-    or (
-        "rbxthumb://type=AvatarHeadShot&id="
-        .. player.UserId
-        .. "&w=150&h=150"
-    )
-
-local function avatar(parent, sz, x, y)
-    local a = new("ImageLabel", {
-        Size = UDim2.fromOffset(sz, sz),
-        Position = UDim2.fromOffset(x, y),
-        BackgroundColor3 = C.tile,
-        Image = avatarSource,
-        ScaleType = Enum.ScaleType.Crop
-    }, parent)
-
-    new("UICorner", {
-        CornerRadius = UDim.new(1, 0)
-    }, a)
-
-    stroke(a)
-    return a
-end
-
-avatar(header, 45, 11, 10)
-
-new("TextLabel", {
-    Position = UDim2.fromOffset(64, 11),
-    Size = UDim2.fromOffset(190, 22),
-    BackgroundTransparency = 1,
-    Text = "GAG AUTO HUB  V7.1",
-    TextColor3 = C.white,
-    Font = Enum.Font.GothamBold,
-    TextSize = 15,
-    TextXAlignment = Enum.TextXAlignment.Left
-}, header)
-
-new("TextLabel", {
-    Position = UDim2.fromOffset(64, 34),
-    Size = UDim2.fromOffset(190, 18),
-    BackgroundTransparency = 1,
-    Text = "Grow a Garden | Halloween",
-    TextColor3 = C.muted,
-    Font = Enum.Font.Gotham,
-    TextSize = 10,
-    TextXAlignment = Enum.TextXAlignment.Left
-}, header)
-
-local function btn(parent, text, pos, size, color)
-    local b = new("TextButton", {
-        Position = pos,
-        Size = size,
-        BackgroundColor3 = color or C.tile,
-        Text = text,
-        TextColor3 = C.white,
-        Font = Enum.Font.GothamBold,
-        TextSize = 13,
-        AutoButtonColor = true
-    }, parent)
-
-    corner(b, 8)
+local function btn(parent,text,pos,size,color)
+    local b=new("TextButton",{
+        Position=pos,Size=size,BackgroundColor3=color or C.tile,
+        Text=text,TextColor3=C.white,Font=Enum.Font.GothamBold,
+        TextSize=10,AutoButtonColor=true
+    },parent)
+    corner(b,6)
     return b
 end
-
-local min = btn(
-    header,
-    "-",
-    UDim2.new(1, -70, 0, 15),
-    UDim2.fromOffset(29, 29)
-)
-
-local exit = btn(
-    header,
-    "X",
-    UDim2.new(1, -37, 0, 15),
-    UDim2.fromOffset(29, 29),
-    Color3.fromRGB(105, 42, 77)
-)
-
--- MINIMIZED PROFILE BUTTON
-
-local mini = new("ImageButton", {
-    Size = UDim2.fromOffset(62, 62),
-    Position = UDim2.new(1, -79, 0.65, 0),
-    BackgroundColor3 = C.panel,
-    Image = avatarSource,
-    ScaleType = Enum.ScaleType.Crop,
-    Visible = false,
-    Active = true
-}, gui)
-
-new("UICorner", {
-    CornerRadius = UDim.new(1, 0)
-}, mini)
-
-stroke(mini)
-
-new("TextLabel", {
-    Size = UDim2.fromOffset(23, 19),
-    Position = UDim2.new(1, -16, 0, -4),
-    Text = "V7",
-    TextSize = 10,
-    Font = Enum.Font.GothamBold,
-    TextColor3 = C.white,
-    BackgroundColor3 = C.accent
-}, mini)
-
--- TABS
-
-local tabs = new("Frame", {
-    Position = UDim2.fromOffset(9, 73),
-    Size = UDim2.new(1, -18, 0, 36),
-    BackgroundTransparency = 1
-}, main)
-
-local pages = {}
-local tabButtons = {}
-
-local tabNames = {
-    "EVENT",
-    "FARM",
-    "SHOPS",
-    "INFO"
-}
-
-for i, name in ipairs(tabNames) do
-    tabButtons[name] = btn(
-        tabs,
-        name,
-        UDim2.new((i - 1) / 4, 2, 0, 0),
-        UDim2.new(0.25, -4, 1, 0),
-        i == 1 and C.accent or C.tile
-    )
-
-    local sc = new("ScrollingFrame", {
-        Position = UDim2.fromOffset(9, 116),
-        Size = UDim2.new(1, -18, 1, -164),
-        BackgroundTransparency = 1,
-        BorderSizePixel = 0,
-        ScrollBarThickness = 3,
-        CanvasSize = UDim2.fromOffset(0, 0),
-        AutomaticCanvasSize = Enum.AutomaticSize.Y,
-        Visible = i == 1
-    }, main)
-
-    new("UIListLayout", {
-        Padding = UDim.new(0, 7),
-        SortOrder = Enum.SortOrder.LayoutOrder
-    }, sc)
-
-    pages[name] = sc
+local gui=new("ScreenGui",{
+    Name="GAG_AutoHub_V82",ResetOnSpawn=false,
+    IgnoreGuiInset=true,DisplayOrder=900
+},pg)
+local main=new("Frame",{
+    Size=UDim2.fromOffset(294,336),
+    Position=UDim2.new(.5,-147,.5,-168),
+    BackgroundColor3=C.bg,BorderSizePixel=0,Active=true
+},gui)
+corner(main,11)
+new("UIStroke",{Color=C.accent,Thickness=1,Transparency=.3},main)
+local header=new("Frame",{
+    Size=UDim2.new(1,0,0,45),BackgroundColor3=C.panel,
+    BorderSizePixel=0,Active=true
+},main)
+corner(header,11)
+local avatarSource=PROFILE_IMAGE_ASSET_ID~="" and
+    ((PROFILE_IMAGE_ASSET_ID:match("^rbxassetid://") and PROFILE_IMAGE_ASSET_ID)
+    or "rbxassetid://"..PROFILE_IMAGE_ASSET_ID)
+    or ("rbxthumb://type=AvatarHeadShot&id="..player.UserId.."&w=150&h=150")
+local avatar=new("ImageLabel",{
+    Position=UDim2.fromOffset(7,6),Size=UDim2.fromOffset(32,32),
+    BackgroundColor3=C.tile,Image=avatarSource,
+    ScaleType=Enum.ScaleType.Crop
+},header)
+new("UICorner",{CornerRadius=UDim.new(1,0)},avatar)
+new("TextLabel",{
+    Position=UDim2.fromOffset(45,6),Size=UDim2.fromOffset(164,18),
+    BackgroundTransparency=1,Text="GAG HUB V8.2",
+    TextColor3=C.white,Font=Enum.Font.GothamBold,TextSize=12,
+    TextXAlignment=Enum.TextXAlignment.Left
+},header)
+new("TextLabel",{
+    Position=UDim2.fromOffset(45,24),Size=UDim2.fromOffset(164,13),
+    BackgroundTransparency=1,Text="Anubis • Shops",
+    TextColor3=C.muted,Font=Enum.Font.Gotham,TextSize=9,
+    TextXAlignment=Enum.TextXAlignment.Left
+},header)
+local minimize=btn(header,"-",UDim2.new(1,-59,0,9),UDim2.fromOffset(23,23))
+local exit=btn(header,"X",UDim2.new(1,-31,0,9),UDim2.fromOffset(23,23),C.red)
+local mini=new("ImageButton",{
+    Size=UDim2.fromOffset(44,44),Position=UDim2.new(1,-56,.65,0),
+    BackgroundColor3=C.panel,Image=avatarSource,
+    ScaleType=Enum.ScaleType.Crop,Visible=false,Active=true
+},gui)
+new("UICorner",{CornerRadius=UDim.new(1,0)},mini)
+local tabs=new("Frame",{
+    Position=UDim2.fromOffset(7,50),Size=UDim2.new(1,-14,0,27),
+    BackgroundTransparency=1
+},main)
+local pages,tabButtons={},{}
+local tabNames={"EVENT","SHOPS","INFO"}
+for i,name in ipairs(tabNames) do
+    tabButtons[name]=btn(tabs,name,
+        UDim2.new((i-1)/#tabNames,2,0,0),
+        UDim2.new(1/#tabNames,-4,1,0),
+        i==1 and C.accent or C.tile)
+    local sc=new("ScrollingFrame",{
+        Position=UDim2.fromOffset(7,82),
+        Size=UDim2.new(1,-14,1,-119),
+        BackgroundTransparency=1,BorderSizePixel=0,
+        ScrollBarThickness=2,CanvasSize=UDim2.fromOffset(0,0),
+        AutomaticCanvasSize=Enum.AutomaticSize.Y,Visible=i==1
+    },main)
+    new("UIListLayout",{
+        Padding=UDim.new(0,5),SortOrder=Enum.SortOrder.LayoutOrder
+    },sc)
+    pages[name]=sc
 end
-
 local function selectTab(name)
-    for n, p in pairs(pages) do
-        p.Visible = (n == name)
-        tabButtons[n].BackgroundColor3 =
-            n == name and C.accent or C.tile
+    for n,p in pairs(pages) do
+        p.Visible=n==name
+        tabButtons[n].BackgroundColor3=n==name and C.accent or C.tile
     end
 end
-
-for name, b in pairs(tabButtons) do
-    b.MouseButton1Click:Connect(function()
-        selectTab(name)
-    end)
+for name,b in pairs(tabButtons) do
+    connect(b.MouseButton1Click,function() selectTab(name) end)
 end
-
-local function section(page, text)
-    return new("TextLabel", {
-        Size = UDim2.new(1, -5, 0, 26),
-        BackgroundTransparency = 1,
-        Text = text,
-        TextColor3 = C.accent,
-        Font = Enum.Font.GothamBold,
-        TextSize = 13,
-        TextXAlignment = Enum.TextXAlignment.Left
-    }, pages[page])
+local function section(page,text)
+    new("TextLabel",{
+        Size=UDim2.new(1,-4,0,18),BackgroundTransparency=1,
+        Text=text,TextColor3=C.accent,Font=Enum.Font.GothamBold,
+        TextSize=10,TextXAlignment=Enum.TextXAlignment.Left
+    },pages[page])
 end
-
-local function toggle(page, key, text, desc)
-    local box = new("Frame", {
-        Size = UDim2.new(1, -5, 0, 55),
-        BackgroundColor3 = C.panel,
-        BorderSizePixel = 0
-    }, pages[page])
-
-    corner(box, 9)
-
-    new("TextLabel", {
-        Position = UDim2.fromOffset(10, 7),
-        Size = UDim2.new(1, -84, 0, 20),
-        BackgroundTransparency = 1,
-        Text = text,
-        TextColor3 = C.white,
-        Font = Enum.Font.GothamBold,
-        TextSize = 12,
-        TextXAlignment = Enum.TextXAlignment.Left
-    }, box)
-
-    new("TextLabel", {
-        Position = UDim2.fromOffset(10, 29),
-        Size = UDim2.new(1, -84, 0, 17),
-        BackgroundTransparency = 1,
-        Text = desc,
-        TextColor3 = C.muted,
-        Font = Enum.Font.Gotham,
-        TextSize = 10,
-        TextXAlignment = Enum.TextXAlignment.Left
-    }, box)
-
-    local b = btn(
-        box,
-        "OFF",
-        UDim2.new(1, -66, 0, 12),
-        UDim2.fromOffset(55, 30)
-    )
-
-    state.switches[key] = false
-
-    b.MouseButton1Click:Connect(function()
-        state.switches[key] = not state.switches[key]
-
-        b.Text = state.switches[key] and "ON" or "OFF"
-        b.BackgroundColor3 =
-            state.switches[key] and C.accent or C.tile
-    end)
+local function hint(page,text,height)
+    local label=new("TextLabel",{
+        Size=UDim2.new(1,-4,0,height or 35),
+        BackgroundColor3=C.panel,Text=text,TextWrapped=true,
+        TextColor3=C.muted,TextSize=9,Font=Enum.Font.Gotham,
+        BorderSizePixel=0
+    },pages[page])
+    corner(label,6)
+    return label
 end
-
--- EVENT PAGE
-
-section("EVENT", "HALLOWEEN EVENT")
-
-toggle(
-    "EVENT",
-    "scary",
-    "Auto Buy - Scary Seeds",
-    "9 captured valid item names"
-)
-
-toggle(
-    "EVENT",
-    "fauna",
-    "Auto Buy - Frightening Fauna",
-    "Haunted Egg / Spooky Chest"
-)
-
-toggle(
-    "EVENT",
-    "decor",
-    "Auto Buy - Demonic Decor",
-    "3 captured decor items"
-)
-
-section("EVENT", "INVENTORY CONTROL")
-
-toggle(
-    "EVENT",
-    "sell",
-    "Sell Halloween When Full",
-    "Only triggers at detected capacity"
-)
-
-local eventHint = new("TextLabel", {
-    Size = UDim2.new(1, -5, 0, 49),
-    BackgroundColor3 = C.panel,
-    Text = "Sell remote affects Halloween plants only. Other fruit types may remain in inventory.",
-    TextColor3 = C.muted,
-    TextWrapped = true,
-    TextSize = 11,
-    Font = Enum.Font.Gotham
-}, pages.EVENT)
-
-corner(eventHint, 9)
-
--- FARM PAGE
-
-section("FARM", "FARM AUTOMATION")
-
-toggle(
-    "FARM",
-    "harvest",
-    "Instant Collect Fruits",
-    "Collect from your own farm"
-)
-
-toggle(
-    "FARM",
-    "farmSell",
-    "Sell When Inventory Full",
-    "Uses Halloween sell remote only"
-)
-
-local farmHint = new("TextLabel", {
-    Size = UDim2.new(1, -5, 0, 60),
-    BackgroundColor3 = C.panel,
-    Text = "Harvest pauses at full inventory. Selling resumes harvesting only if the inventory count drops. The server decides which fruits are ready.",
-    TextWrapped = true,
-    TextColor3 = C.muted,
-    TextSize = 11,
-    Font = Enum.Font.Gotham
-}, pages.FARM)
-
-corner(farmHint, 9)
-
--- STANDARD SHOPS PAGE
-
-section("SHOPS", "STANDARD SHOPS")
-
-toggle(
-    "SHOPS",
-    "seeds",
-    "Auto Buy Seeds",
-    "Uses visible stock entries"
-)
-
-toggle(
-    "SHOPS",
-    "gear",
-    "Auto Buy Gear",
-    "Uses visible stock entries"
-)
-
-toggle(
-    "SHOPS",
-    "eggs",
-    "Auto Buy Eggs",
-    "Uses visible stock entries"
-)
-
--- INFO PAGE
-
-section("INFO", "ABOUT V7.1")
-
-local info = new("TextLabel", {
-    Size = UDim2.new(1, -5, 0, 190),
-    BackgroundColor3 = C.panel,
-    TextWrapped = true,
-    TextYAlignment = Enum.TextYAlignment.Top,
-    TextColor3 = C.white,
-    TextSize = 12,
-    Font = Enum.Font.Gotham,
-    Text = [[
-GAG AUTO HUB V7.1
-
-- All toggles OFF by default
-- 14 captured Halloween shop items
-- Empty item names skipped
-- Full-inventory harvest pause
-- Halloween-only auto sell
-- Minimize to circular profile icon
-
-To use your own picture, set
-PROFILE_IMAGE_ASSET_ID at the top.
-]]
-}, pages.INFO)
-
-corner(info, 9)
-
--- FOOTER STATUS
-
-local footer = new("Frame", {
-    Position = UDim2.new(0, 9, 1, -41),
-    Size = UDim2.new(1, -18, 0, 32),
-    BackgroundColor3 = C.panel
-}, main)
-
-corner(footer, 8)
-
-local status = new("TextLabel", {
-    Position = UDim2.fromOffset(7, 0),
-    Size = UDim2.new(1, -14, 1, 0),
-    BackgroundTransparency = 1,
-    Text = "Ready | Inventory: --/--",
-    TextColor3 = C.green,
-    Font = Enum.Font.Gotham,
-    TextSize = 11,
-    TextXAlignment = Enum.TextXAlignment.Left,
-    TextTruncate = Enum.TextTruncate.AtEnd
-}, footer)
-
--- MOBILE DRAGGING
-
-local function drag(target, handle)
-    local active = false
-    local start
-    local initial
-    local inputRef
-
-    handle.InputBegan:Connect(function(i)
-        if i.UserInputType == Enum.UserInputType.Touch
-            or i.UserInputType == Enum.UserInputType.MouseButton1 then
-
-            active = true
-            start = i.Position
-            initial = target.Position
-            inputRef = i
-
-            i.Changed:Connect(function()
-                if i.UserInputState == Enum.UserInputState.End then
-                    active = false
-                end
-            end)
-        end
-    end)
-
-    handle.InputChanged:Connect(function(i)
-        if i.UserInputType ==
-            Enum.UserInputType.MouseMovement then
-            inputRef = i
-        end
-    end)
-
-    UIS.InputChanged:Connect(function(i)
-        if active and (
-            i == inputRef
-            or i.UserInputType == Enum.UserInputType.Touch
-        ) then
-            local d = i.Position - start
-
-            target.Position = UDim2.new(
-                initial.X.Scale,
-                initial.X.Offset + d.X,
-                initial.Y.Scale,
-                initial.Y.Offset + d.Y
-            )
-        end
-    end)
-end
-
-drag(main, header)
-drag(mini, mini)
-
-min.MouseButton1Click:Connect(function()
-    main.Visible = false
-    mini.Visible = true
-    state.minimized = true
-end)
-
-mini.MouseButton1Click:Connect(function()
-    main.Visible = true
-    mini.Visible = false
-    state.minimized = false
-end)
-
-exit.MouseButton1Click:Connect(function()
-    state.alive = false
-    gui:Destroy()
-end)
-
--- CAPTURED HALLOWEEN ITEMS
-
-local halloween = {
-    ["Scary Seeds"] = {
-        "Halloween Candy Corn Carrot",
-        "Halloween Candy Cluster",
-        "Halloween Witch's Broom",
-        "Halloween Webberry",
-        "Halloween Blood Kiwi",
-        "Halloween Fang Root",
-        "Halloween Haunted Hallow",
-        "Halloween Pumpkin Lantern",
-        "Haunted Sprinkler"
-    },
-
-    ["Frightening Fauna"] = {
-        "Haunted Egg",
-        "Spooky Chest"
-    },
-
-    ["Demonic Decor"] = {
-        "Haunted Crate",
-        "Haunted Well",
-        "Spooky Crate"
-    }
-}
-
--- INVENTORY DETECTION
-
-local function getCapacity()
-    for _, obj in ipairs(pg:GetDescendants()) do
-        if obj:IsA("TextLabel")
-            or obj:IsA("TextButton") then
-
-            local t = obj.Text
-
-            if type(t) == "string" then
-                local a, b = t:match(
-                    "Fruit%s*Items%s*%(%s*(%d+)%s*/%s*(%d+)%s*%)"
-                )
-
-                if a and b then
-                    return tonumber(a), tonumber(b)
-                end
+local function toggle(page,key,text,desc)
+    local box=new("Frame",{
+        Size=UDim2.new(1,-4,0,43),
+        BackgroundColor3=C.panel,BorderSizePixel=0
+    },pages[page])
+    corner(box,7)
+    new("TextLabel",{
+        Position=UDim2.fromOffset(8,5),Size=UDim2.new(1,-67,0,17),
+        BackgroundTransparency=1,Text=text,TextColor3=C.white,
+        Font=Enum.Font.GothamBold,TextSize=10,
+        TextXAlignment=Enum.TextXAlignment.Left
+    },box)
+    new("TextLabel",{
+        Position=UDim2.fromOffset(8,23),Size=UDim2.new(1,-67,0,13),
+        BackgroundTransparency=1,Text=desc,TextColor3=C.muted,
+        Font=Enum.Font.Gotham,TextSize=8,
+        TextXAlignment=Enum.TextXAlignment.Left
+    },box)
+    local b=btn(box,"OFF",UDim2.new(1,-51,0,9),UDim2.fromOffset(43,25))
+    state.switches[key]=false
+    connect(b.MouseButton1Click,function()
+        state.switches[key]=not state.switches[key]
+        b.Text=state.switches[key] and "ON" or "OFF"
+        b.BackgroundColor3=state.switches[key] and C.accent or C.tile
+        if key=="anubis" then
+            if state.switches[key] then
+                state.done=false
+                state.restartFault=false
+                state.pending=nil
+                state.eventStatus="Running"
+                log("Anubis started")
+            else
+                state.pending=nil
+                state.eventStatus="Stopped"
+                log("Anubis stopped")
             end
         end
-    end
-
-    return nil, nil
+    end)
 end
-
--- FARM DETECTION
-
+section("EVENT","ANUBIS ANCIENT ARC")
+toggle("EVENT","anubis","Auto Anubis Event","Trait harvest + submit")
+toggle("EVENT","anubisRestart","Auto Paid Restart","1T per confirmed restart")
+local arcLabel=hint("EVENT","Trait: ? | Stage: ?\nStopped",39)
+local copyResults=btn(pages.EVENT,"COPY RESULTS",
+    UDim2.new(0,0,0,0),UDim2.new(1,-4,0,27),C.accent)
+section("SHOPS","STANDARD SHOPS")
+toggle("SHOPS","seeds","Auto Buy Seeds","Visible stock")
+toggle("SHOPS","gear","Auto Buy Gear","Visible stock")
+toggle("SHOPS","eggs","Auto Buy Eggs","Visible stock")
+section("INFO","ABOUT V8.2")
+hint("INFO",
+    "GAG AUTO HUB V8.2 COMPACT\n\nAll switches OFF by default.\n"..
+    "Root crops: Octobloom, Ghoul Root and more.\n"..
+    "Halloween + generic harvest archived.\n"..
+    "Paid restart uses separate toggle.\n"..
+    "Spider + Mimic work independently.\n"..
+    "Close X cleans up connections.",140)
+local footer=new("Frame",{
+    Position=UDim2.new(0,7,1,-31),Size=UDim2.new(1,-14,0,25),
+    BackgroundColor3=C.panel
+},main)
+corner(footer,6)
+local status=new("TextLabel",{
+    Position=UDim2.fromOffset(5,0),Size=UDim2.new(1,-10,1,0),
+    BackgroundTransparency=1,Text="Ready",TextColor3=C.green,
+    Font=Enum.Font.Gotham,TextSize=9,
+    TextXAlignment=Enum.TextXAlignment.Left,
+    TextTruncate=Enum.TextTruncate.AtEnd
+},footer)
+local function drag(target,handle)
+    local active=false
+    local start,initial,dragInput
+    connect(handle.InputBegan,function(input)
+        if input.UserInputType==Enum.UserInputType.Touch or
+           input.UserInputType==Enum.UserInputType.MouseButton1 then
+            active=true;start=input.Position
+            initial=target.Position;dragInput=input
+        end
+    end)
+    connect(UIS.InputChanged,function(input)
+        if not active or not dragInput then return end
+        if input~=dragInput and not (
+            dragInput.UserInputType==Enum.UserInputType.MouseButton1 and
+            input.UserInputType==Enum.UserInputType.MouseMovement
+        ) then return end
+        local delta=input.Position-start
+        target.Position=UDim2.new(
+            initial.X.Scale,initial.X.Offset+delta.X,
+            initial.Y.Scale,initial.Y.Offset+delta.Y)
+    end)
+    connect(UIS.InputEnded,function(input)
+        if input==dragInput then active=false;dragInput=nil end
+    end)
+end
+drag(main,header)
+drag(mini,mini)
+connect(minimize.MouseButton1Click,function()
+    main.Visible=false;mini.Visible=true
+end)
+connect(mini.MouseButton1Click,function()
+    main.Visible=true;mini.Visible=false
+end)
+local function cleanup()
+    if not state.alive then return end
+    state.alive=false
+    for k in pairs(state.switches) do state.switches[k]=false end
+    for _,c in ipairs(state.connections) do
+        pcall(function() c:Disconnect() end)
+    end
+    if gui then gui:Destroy() end
+    if env.GAG_V8_Close==cleanup then env.GAG_V8_Close=nil end
+end
+env.GAG_V8_Close=cleanup
+connect(exit.MouseButton1Click,cleanup)
+connect(copyResults.MouseButton1Click,function()
+    local text=table.concat(state.logLines,"\n")
+    if type(setclipboard)=="function" then
+        local ok=pcall(setclipboard,text)
+        log(ok and "Results copied" or "Clipboard failed")
+    else log("Clipboard not supported") end
+end)
+local function getCapacity()
+    for _,obj in ipairs(pg:GetDescendants()) do
+        if obj:IsA("TextLabel") or obj:IsA("TextButton") then
+            local a,b=obj.Text:match(
+                "Fruit%s*Items%s*%(%s*(%d+)%s*/%s*(%d+)%s*%)")
+            if a and b then return tonumber(a),tonumber(b) end
+        end
+    end
+end
 local function ownFarm()
-    local root = workspace:FindFirstChild("Farm")
-    if not root then return nil end
-
-    for _, farm in ipairs(root:GetChildren()) do
-        local imp = farm:FindFirstChild("Important")
-        local data = imp and imp:FindFirstChild("Data")
-        local owner = data and data:FindFirstChild("Owner")
-
-        if owner
-            and owner:IsA("StringValue")
-            and owner.Value == player.Name then
-
-            return farm
-        end
+    local root=workspace:FindFirstChild("Farm")
+    if not root then return end
+    for _,farm in ipairs(root:GetChildren()) do
+        local imp=farm:FindFirstChild("Important")
+        local data=imp and imp:FindFirstChild("Data")
+        local owner=data and data:FindFirstChild("Owner")
+        if owner and tostring(owner.Value)==player.Name then return farm end
     end
 end
-
--- INSTANT HARVEST
-
-local function collectFruit()
-    local farm = ownFarm()
-
-    if not farm then
-        log("Your farm not found")
-        return
-    end
-
-    local imp = farm:FindFirstChild("Important")
-    local plants = imp and imp:FindFirstChild("Plants_Physical")
-
-    if not plants then return end
-
-    local collect = remote("Crops/Collect")
-
-    if not collect then
-        log("Collect remote unavailable")
-        return
-    end
-
-    local batch = {}
-    local batches = 0
-
-    for _, plant in ipairs(plants:GetChildren()) do
-        if not state.alive
-            or not state.switches.harvest then
-            return
+local function plantsFolder()
+    local farm=ownFarm()
+    local imp=farm and farm:FindFirstChild("Important")
+    return imp and imp:FindFirstChild("Plants_Physical")
+end
+local function stockAvailable(stock)
+    if not stock or not stock:IsA("TextLabel") then return false end
+    local n=tostring(stock.Text):match("(%d+)")
+    return n~=nil and tonumber(n)>0
+end
+local function normalShop(kind)
+    local rootName=kind=="seeds" and "Seed_Shop" or
+        (kind=="gear" and "Gear_Shop" or "PetEggShop")
+    local root=pg:FindFirstChild(rootName)
+    if not root then return end
+    local calls=0
+    for _,obj in ipairs(root:GetDescendants()) do
+        if obj.Name=="Stock_Text" and stockAvailable(obj) then
+            local frame=obj.Parent and obj.Parent.Parent
+            local name=frame and frame.Name
+            if name and name~="" and name~="ScrollingFrame" and
+                name~="Main_Frame" then
+                local ok=false
+                if kind=="seeds" then
+                    ok=fire("BuySeedStock","Shop",name)
+                elseif kind=="gear" then
+                    ok=fire("BuyGearStock",name)
+                else ok=fire("BuyPetEgg",name) end
+                if ok then calls+=1 end
+            end
+            if calls>=10 then break end
         end
-
-        local fruits = plant:FindFirstChild("Fruits")
-
-        if fruits then
-            for _, fruit in ipairs(fruits:GetChildren()) do
-                if fruit:IsA("Model") then
-                    batch[#batch + 1] = fruit
-
-                    if #batch >= 20 then
-                        pcall(
-                            collect.FireServer,
-                            collect,
-                            batch
-                        )
-
-                        batches += 1
-                        batch = {}
-
-                        task.wait(0.2)
-
-                        if batches >= 5 then
-                            log(
-                                "Harvest: sent "
-                                .. (batches * 20)
-                                .. " fruit refs"
-                            )
-                            return
+    end
+    if calls>0 then log("Shop "..kind..": "..calls.." requests") end
+end
+local cropTraits={
+    ["Beanstalk"]={"Leafy","Stalky","Vegetable"},
+    ["Blue Candypop"]={"Flower"},
+    ["Bone Blossom"]={"Flower"},
+    ["Candy Blossom 2026"]={"Flower","Sweet"},
+    ["Celestiberry"]={"Berry","Fruit","Leafy","Prickly"},
+    ["Dragon Fruit"]={"Fruit","Prickly","Tropical"},
+    ["Moon Mango"]={"Fruit","Leafy","Woody"},
+    ["Poison Apple"]={"Fruit","Leafy","Prickly","Sour","Sweet","Woody"},
+    ["Tomato"]={"Fruit","Leafy"},
+    ["Carrot"]={"Root"},["Potato"]={"Root"},["Radish"]={"Root"},
+    ["Octobloom"]={"Root","Flower"},["Ghoul Root"]={"Root"},
+    ["Wild Carrot"]={"Root"},["Onion"]={"Root"},
+    ["Spring Onion"]={"Root"},["Firefly Spiral"]={"Root"},
+    ["Beach Brella"]={"Root"},["Bear Claw Flower"]={"Root"},
+    ["Evo Beetroot II"]={"Root"},["Evo Beetroot I"]={"Root"},
+    ["Evo Beetroot III"]={"Root"},["Evo Beetroot IV"]={"Root"},
+    ["Halloween Fang Root"]={"Root"},["Fang Root"]={"Root"},
+    ["Auburn Pine"]={"Root"},["Aurora Vine"]={"Root"},
+    ["Mangrove"]={"Root"},["Reindeer Root"]={"Root"},
+    ["Trinity Fruit"]={"Root"},["Rhubarb"]={"Root"},
+    ["Tall Asparagus"]={"Root"},["Turnip"]={"Root"},
+    ["Anubis Bramble"]={"Root"},["Wraproot"]={"Root"},
+    ["Bumble Bulb"]={"Root"},["Taro Flower"]={"Root"},
+    ["Mummy's Hand"]={"Root"},["Marshmallow Root"]={"Root"},
+    ["Shadow Spine"]={"Root"},["Smoke Stalk"]={"Root"},
+    ["Obby Oddvine"]={"Root"},["Egg Shroom"]={"Root"}
+}
+local function qualifies(name,trait)
+    name=tostring(name):gsub("%s+Seed$","")
+    local list=cropTraits[name]
+    if not list then return false end
+    for _,t in ipairs(list) do
+        if t==trait then return true end
+    end
+    return false
+end
+local arc=remote("Events/AnubisEvent/AncientArc")
+local submit=arc and arc:FindFirstChild("Submit")
+local submitResult=arc and arc:FindFirstChild("SubmitResult")
+local restart=arc and arc:FindFirstChild("Restart")
+local function anubisCollect(now)
+    if now-state.lastAnubisHarvest<5 then return end
+    state.lastAnubisHarvest=now
+    local trait=arc and arc:GetAttribute("Trait")
+    if type(trait)~="string" or trait=="" then
+        state.eventStatus="Trait unavailable";return
+    end
+    state.trait=trait
+    local plants=plantsFolder()
+    local collect=remote("Crops/Collect")
+    if not plants or not collect or not collect:IsA("RemoteEvent") then
+        state.eventStatus="Farm/collect missing";return
+    end
+    if state.inventoryKnown and state.count>=state.capacity then
+        state.eventStatus="Inventory full";return
+    end
+    local serverNow=workspace:GetServerTimeNow()
+    local batch={}
+    local selected=0
+    local eligible=0
+    local function sendBatch()
+        if #batch==0 then return end
+        local ok=pcall(collect.FireServer,collect,batch)
+        if ok then state.harvestBatches+=1 end
+        batch={}
+    end
+    for _,plant in ipairs(plants:GetChildren()) do
+        if not state.alive or not state.switches.anubis then return end
+        if qualifies(plant.Name,trait) then
+            eligible+=1
+            local fruits=plant:FindFirstChild("Fruits")
+            if fruits then
+                for _,fruit in ipairs(fruits:GetChildren()) do
+                    if fruit:IsA("Model") then
+                        local done=fruit:GetAttribute("DoneGrowTime")
+                        local weight=fruit:FindFirstChild("Weight")
+                        if type(done)=="number" and done<=serverNow and
+                            weight and weight:IsA("NumberValue") and
+                            weight.Value>0 then
+                            batch[#batch+1]=fruit
+                            selected+=1
+                            if #batch>=20 then
+                                sendBatch();task.wait(.2)
+                                if selected>=100 then break end
+                            end
                         end
                     end
                 end
             end
         end
+        if selected>=100 then break end
     end
-
-    if #batch > 0 then
-        pcall(collect.FireServer, collect, batch)
-    end
-
-    log("Harvest checked your farm")
+    sendBatch()
+    if selected>0 then
+        state.eventStatus="Collect sent: "..selected
+        log("Anubis "..trait..": "..selected.." fruit refs")
+    elseif eligible==0 then
+        state.eventStatus="No planted crops for "..trait
+    else state.eventStatus="Waiting for ripe "..trait end
 end
-
--- NORMAL SHOP HELPERS
-
-local function stockAvailable(stock)
-    if not stock then return false end
-
-    local text = tostring(stock.Text or "")
-    local number = text:match("(%d+)")
-
-    return number ~= nil
-        and tonumber(number) > 0
-end
-
-local function normalShop(kind)
-    local rootName =
-        kind == "seeds" and "Seed_Shop"
-        or (
-            kind == "gear"
-            and "Gear_Shop"
-            or "PetEggShop"
-        )
-
-    local root = pg:FindFirstChild(rootName)
-
-    if not root then return end
-
-    local calls = 0
-
-    for _, obj in ipairs(root:GetDescendants()) do
-        if obj.Name == "Stock_Text"
-            and obj:IsA("TextLabel")
-            and stockAvailable(obj) then
-
-            local itemFrame =
-                obj.Parent and obj.Parent.Parent
-
-            local name = itemFrame and itemFrame.Name
-
-            if name
-                and name ~= ""
-                and name ~= "ScrollingFrame"
-                and name ~= "Main_Frame" then
-
-                local ok = false
-
-                if kind == "seeds" then
-                    ok = fire(
-                        "BuySeedStock",
-                        "Shop",
-                        name
-                    )
-
-                elseif kind == "gear" then
-                    ok = fire(
-                        "BuyGearStock",
-                        name
-                    )
-
-                else
-                    ok = fire(
-                        "BuyPetEgg",
-                        name
-                    )
-                end
-
-                if ok then
-                    calls += 1
-                end
-            end
-
-            if calls >= 10 then
-                break
-            end
-        end
+local function requestSubmit(now)
+    if not submit or not submit:IsA("RemoteEvent") then
+        state.eventStatus="Submit remote missing";return
     end
-
-    if calls > 0 then
-        log(
-            "Shop " .. kind
-            .. ": " .. calls
-            .. " requests"
-        )
-    end
-end
-
--- HALLOWEEN AUTO BUY
-
-local function buyHalloween()
-    local keyByCategory = {
-        ["Scary Seeds"] = "scary",
-        ["Frightening Fauna"] = "fauna",
-        ["Demonic Decor"] = "decor"
-    }
-
-    local count = 0
-
-    for category, items in pairs(halloween) do
-        local key = keyByCategory[category]
-
-        if state.switches[key] then
-            for _, item in ipairs(items) do
-                if not state.alive
-                    or not state.switches[key] then
-                    break
-                end
-
-                -- Never send empty item names
-                if item ~= "" then
-                    if fire(
-                        "BuyEventShopStock",
-                        item,
-                        category
-                    ) then
-                        count += 1
-                    end
-
-                    task.wait(0.16)
-                end
-            end
-        end
-    end
-
-    if count > 0 then
-        log(
-            "Halloween: "
-            .. count
-            .. " requests sent"
-        )
-    end
-end
-
--- AUTO SELL ONLY WHEN FULL
-
-local function sellIfFull(now)
-    if not (
-        state.switches.sell
-        or state.switches.farmSell
-    ) then
+    if state.pending then
+        if now-state.pending.sent<10 then return end
+        log("Submit timeout; retry later")
+        state.pending=nil;state.lastSubmit=now
         return
     end
-
-    if state.count <= 0
-        or state.capacity <= 0
-        or state.count < state.capacity then
-        return
-    end
-
-    if now - state.lastSell < 12 then
-        return
-    end
-
-    state.lastSell = now
-
-    if fire(
-        "Events/Halloween2026Event/HalloweenSellInventoryRE"
-    ) then
-        log("Inventory full: Halloween sell requested")
+    if now-state.lastSubmit<3 then return end
+    state.lastSubmit=now;state.token+=1
+    local token=state.token
+    state.pending={token=token,sent=now}
+    local ok=pcall(submit.FireServer,submit,{Token=token,Mode="All"})
+    if not ok then
+        state.pending=nil;state.eventStatus="Submit send failed"
     else
-        log("Halloween sell remote unavailable")
+        state.submitted+=1
+        state.eventStatus="Awaiting submit result"
     end
 end
-
--- AUTOMATION LOOP
-
+local function requestRestart(now)
+    if not state.done or not state.switches.anubisRestart or
+        state.restartBusy or state.restartFault or
+        now-state.lastRestart<15 then return end
+    if not restart or not restart:IsA("RemoteFunction") then
+        state.eventStatus="Restart remote missing";return
+    end
+    state.restartBusy=true;state.lastRestart=now
+    state.eventStatus="Restart pending (1T)"
+    local invocation=state.restarts+1
+    task.spawn(function()
+        local finished=false
+        local success,result=false,nil
+        task.spawn(function()
+            success,result=pcall(restart.InvokeServer,restart)
+            finished=true
+        end)
+        local started=os.clock()
+        while state.alive and not finished and
+            os.clock()-started<12 do task.wait(.1) end
+        if not state.alive then return end
+        if not finished then
+            state.restartFault=true
+            state.eventStatus="Restart timed out; halted"
+            log("Restart timeout: halted to avoid double charge")
+        elseif success and type(result)=="table" and result.Success==true then
+            state.restarts=invocation
+            state.done=false;state.pending=nil
+            state.eventStatus="Restart confirmed"
+            log("Restart confirmed #"..state.restarts)
+        else
+            state.eventStatus="Restart rejected"
+            log("Restart rejected: "..tostring(
+                type(result)=="table" and result.Reason or result))
+        end
+        state.restartBusy=false
+    end)
+end
+if submitResult and submitResult:IsA("RemoteEvent") then
+    connect(submitResult.OnClientEvent,function(result)
+        if not state.alive or not state.switches.anubis or
+            type(result)~="table" then return end
+        local pending=state.pending
+        if not pending then return end
+        if result.Token~=nil and tonumber(result.Token)~=pending.token then
+            return
+        end
+        state.pending=nil;state.lastResult=os.clock()
+        if result.Stage~=nil then state.stage=tostring(result.Stage) end
+        if result.Success==true then
+            state.accepted+=1
+            state.eventStatus="Submission accepted"
+            log("Submit OK | stage "..state.stage..
+                " | added "..tostring(result.Added or "?"))
+        else
+            local reason=tostring(result.Reason or "Unknown")
+            state.eventStatus=reason
+            if reason=="Done" then
+                state.done=true
+                log("Excavation complete; restart available")
+            elseif reason=="AlreadyReady" then
+                state.lastSubmit=os.clock()+2
+            elseif reason=="NoneFound" then
+                state.lastSubmit=os.clock()+12
+            elseif reason=="TooFar" then
+                state.lastSubmit=os.clock()+8
+                log("Too far: stand near Anubis")
+            else log("Submit: "..reason) end
+        end
+    end)
+else log("SubmitResult remote unavailable") end
+log("V8.2 Compact loaded - all toggles OFF")
 task.spawn(function()
     while state.alive and gui.Parent do
-        local now = os.clock()
-
-        local count, cap = getCapacity()
-
-        if count and cap then
-            state.count = count
-            state.capacity = cap
-        end
-
-        local full =
-            count and cap
-            and cap > 0
-            and count >= cap
-
-        -- Harvest every 2.5 seconds
-        if now - state.lastHarvest >= 2.5 then
-            state.lastHarvest = now
-
-            if state.switches.harvest
-                and not full then
-                collectFruit()
+        local now=os.clock()
+        local count,cap=getCapacity()
+        if count and cap and cap>0 then
+            state.count=count;state.capacity=cap;state.inventoryKnown=true
+        else state.inventoryKnown=false end
+        if now-state.lastNormal>=15 then
+            state.lastNormal=now
+            for _,kind in ipairs({"seeds","gear","eggs"}) do
+                if state.switches[kind] then normalShop(kind) end
             end
         end
-
-        -- Sell when inventory reaches limit
-        sellIfFull(now)
-
-        -- Halloween purchases every 15 seconds
-        if now - state.lastBuy >= 15 then
-            state.lastBuy = now
-
-            if state.switches.scary
-                or state.switches.fauna
-                or state.switches.decor then
-                buyHalloween()
+        if state.switches.anubis then
+            if arc then
+                state.trait=tostring(arc:GetAttribute("Trait") or "?")
+            end
+            if state.done then
+                if state.switches.anubisRestart then
+                    requestRestart(now)
+                else state.eventStatus="Done - restart OFF" end
+            elseif not state.restartBusy then
+                anubisCollect(now)
+                requestSubmit(now)
             end
         end
-
-        -- Standard shops every 15 seconds
-        if now - state.lastNormal >= 15 then
-            state.lastNormal = now
-
-            for _, kind in ipairs({
-                "seeds",
-                "gear",
-                "eggs"
-            }) do
-                if state.switches[kind] then
-                    normalShop(kind)
-                end
-            end
-        end
-
-        status.Text = string.format(
-            "%s | Fruit: %s/%s",
-            state.log,
-            count or "?",
-            cap or "?"
-        )
-
+        arcLabel.Text=string.format(
+            "Trait: %s | Stage: %s\n%s | Restarts: %d",
+            state.trait,state.stage,state.eventStatus,state.restarts)
+        status.Text=string.format(
+            "%s | Fruit: %s/%s",state.lastLog,
+            state.inventoryKnown and tostring(state.count) or "?",
+            state.inventoryKnown and tostring(state.capacity) or "?")
         task.wait(1)
     end
 end)
-
-log("Hub loaded - toggles OFF")
