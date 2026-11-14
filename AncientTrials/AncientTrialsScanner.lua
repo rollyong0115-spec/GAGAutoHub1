@@ -1,4 +1,4 @@
--- Grow a Garden V9.4.4 - Pharaoh Ancient Trials LIVE MONITOR
+-- Grow a Garden V9.4.5 - Pharaoh Ancient Trials LIVE MONITOR
 -- Read-only: NO FireServer / InvokeServer / simulated input / submission.
 -- Mobile/Delta friendly. Run while Pharaoh and the entrance HUD are visible.
 
@@ -51,7 +51,7 @@ local function say(line)
     local message = stamp .. " " .. tostring(line)
     table.insert(logs, message)
     while #logs > MAX_LOGS do table.remove(logs, 1) end
-    print("[GAG V9.4.4] " .. message)
+    print("[GAG V9.4.5] " .. message)
 end
 
 local function safeAttribute(instance, key)
@@ -158,7 +158,7 @@ local function isToolFruit(tool, crop)
     for _, word in ipairs({
         "seed", "sprinkler", "shovel", "trowel", "crate", "lollipop",
         "smoothie", "potion", "gear", "pack", "egg", "chest", "box",
-        "mouse", "soup", "juice", "cake"
+        "mouse", "soup", "juice", "cake", "corndog"
     }) do
         if padded:find(" " .. word .. " ", 1, true) then return false end
     end
@@ -419,7 +419,7 @@ local header = create("Frame", {
 }, panel)
 create("UICorner", {CornerRadius = UDim.new(0, 12)}, header)
 local title = create("TextLabel", {
-    Text = "ANCIENT TRIALS  V9.4.4", Font = Enum.Font.GothamBold,
+    Text = "ANCIENT TRIALS  V9.4.5", Font = Enum.Font.GothamBold,
     TextSize = 15, TextColor3 = Color3.fromRGB(237, 249, 255),
     BackgroundTransparency = 1, TextXAlignment = Enum.TextXAlignment.Left,
     Position = UDim2.fromOffset(11, 0), Size = UDim2.new(1, -92, 1, 0)
@@ -547,7 +547,7 @@ end)
 
 local function fullReport()
     return table.concat({
-        "GAG V9.4.4 TRIAL REPORT (READ ONLY)",
+        "GAG V9.4.5 TRIAL REPORT (READ ONLY)",
         report,
         "--- UI text witnesses (max 20) ---",
         table.concat(uiWitnesses, "\n"),
@@ -618,7 +618,7 @@ local function scanNow(forceWorld)
         local t = trait or "?"
         local p = points and tostring(points) or "?"
         local clock = timer or "?"
-        report = string.format("Trait=%s Points=%s/900 Timer=%s\nFruits=%d Matching=%d Protected=%d\nWrongCategory=%d Unknown=%d OtherTools=%d\nTraitSource=%s\nPointsSource=%s",
+        report = string.format("Trait=%s Points=%s/900 Timer=%s\nFruits=%d Matching=%d Protected=%d\nWrongCategory=%d Unknown=%d OtherTools=%d\nNote=Fruits are candidate harvest tools, not verified offerings; Protected counts observed flags only\nTraitSource=%s\nPointsSource=%s",
             t, p, clock, stats.total, stats.match, stats.protected,
             stats.wrong, stats.unknown, stats.other, traitSrc, pointsSrc)
         status.Text = string.format(
@@ -650,7 +650,7 @@ local function scanNow(forceWorld)
 end
 
 connect(scanButton.MouseButton1Click, function() task.spawn(scanNow, true) end)
-say("V9.4.4 started (read-only). Stand near Pharaoh; keep entrance HUD visible.")
+say("V9.4.5 started (read-only). Stand near Pharaoh; keep entrance HUD visible.")
 say("World text cache refreshes every 25s; UI/inventory refreshes every 4s.")
 drawLogs()
 task.spawn(function()
