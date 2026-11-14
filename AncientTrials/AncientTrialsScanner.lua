@@ -1,4 +1,4 @@
--- Grow a Garden V9.5.1 - Pharaoh Ancient Trials LIVE MONITOR
+-- Grow a Garden V9.5.2 - Pharaoh Ancient Trials LIVE MONITOR
 -- Read-only: NO FireServer / InvokeServer / simulated input / submission.
 -- Mobile/Delta friendly. Run while Pharaoh and the entrance HUD are visible.
 
@@ -25,6 +25,7 @@ local report = "No scan yet"
 local fruitDetails = {}
 local protectionEvidence = {}
 local favoriteComparison = "No A/B comparison captured yet."
+local locatorReport = "Fruit Locator: no search run yet."
 local uiWitnesses = {}
 local lastTrait = nil
 local lastPoints = nil
@@ -53,7 +54,7 @@ local function say(line)
     local message = stamp .. " " .. tostring(line)
     table.insert(logs, message)
     while #logs > MAX_LOGS do table.remove(logs, 1) end
-    print("[GAG V9.5.1] " .. message)
+    print("[GAG V9.5.2] " .. message)
 end
 
 local function safeAttribute(instance, key)
@@ -522,18 +523,18 @@ for _, root in ipairs(guiRoots) do
     end)
 end
 local screen = Instance.new("ScreenGui")
-screen.Name = "GAGTrialMonitor951"
+screen.Name = "GAGTrialMonitor952"
 screen.ResetOnSpawn = false
 screen.IgnoreGuiInset = false
 screen.Enabled = true
 screen.DisplayOrder = 200
 screen.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 screen.Parent = parentGui
-print("[GAG Ancient Trials] V9.5.1 UI mounted in PlayerGui")
+print("[GAG Ancient Trials] V9.5.2 UI mounted in PlayerGui")
 
 local viewport = (Workspace.CurrentCamera and Workspace.CurrentCamera.ViewportSize) or Vector2.new(420, 760)
 local panelWidth = math.max(285, math.min(420, viewport.X - 20))
-local panelHeight = math.max(340, math.min(475, viewport.Y - 38))
+local panelHeight = math.max(365, math.min(505, viewport.Y - 38))
 
 local function create(className, props, parent)
     local obj = Instance.new(className)
@@ -559,7 +560,7 @@ create("UICorner", {CornerRadius = UDim.new(0, 12)}, header)
 -- A dedicated full-width touch target prevents TextLabels from swallowing
 -- touch-start events on mobile executors. Keep X/minimize outside the handle.
 local title = create("TextButton", {
-    Name = "DragHandle", Text = "DRAG HERE - TRIALS V9.5.1",
+    Name = "DragHandle", Text = "DRAG HERE - TRIALS V9.5.2",
     Font = Enum.Font.GothamBold, TextSize = 13,
     TextColor3 = Color3.fromRGB(237, 249, 255),
     BackgroundTransparency = 1, AutoButtonColor = false,
@@ -582,13 +583,13 @@ create("UICorner", {CornerRadius = UDim.new(0, 7)}, close)
 local status = create("TextLabel", {
     Name = "Status", Text = "Scanning Pharaoh and entrance HUD...",
     TextColor3 = Color3.fromRGB(227, 242, 251), Font = Enum.Font.Code,
-    TextSize = 13, TextWrapped = true, TextXAlignment = Enum.TextXAlignment.Left,
+    TextSize = 12, TextWrapped = true, TextXAlignment = Enum.TextXAlignment.Left,
     TextYAlignment = Enum.TextYAlignment.Top, BackgroundTransparency = 1,
-    Position = UDim2.fromOffset(12, 49), Size = UDim2.new(1, -24, 0, 124)
+    Position = UDim2.fromOffset(12, 49), Size = UDim2.new(1, -24, 0, 110)
 }, panel)
 
 local buttons = create("Frame", {
-    Position = UDim2.fromOffset(10, 178), Size = UDim2.new(1, -20, 0, 37),
+    Position = UDim2.fromOffset(10, 165), Size = UDim2.new(1, -20, 0, 37),
     BackgroundTransparency = 1
 }, panel)
 local scanButton = create("TextButton", {
@@ -605,7 +606,7 @@ local copyButton = create("TextButton", {
 create("UICorner", {CornerRadius = UDim.new(0, 8)}, copyButton)
 
 local sampleRow = create("Frame", {
-    Name = "FavCompareRow", Position = UDim2.fromOffset(10, 219),
+    Name = "FavCompareRow", Position = UDim2.fromOffset(10, 207),
     Size = UDim2.new(1, -20, 0, 34), BackgroundTransparency = 1
 }, panel)
 local snapAButton = create("TextButton", {
@@ -623,9 +624,45 @@ local snapBButton = create("TextButton", {
 }, sampleRow)
 create("UICorner", {CornerRadius = UDim.new(0, 8)}, snapBButton)
 
+local locatorRow = create("Frame", {
+    Name = "FruitLocatorRow", Position = UDim2.fromOffset(10, 248),
+    Size = UDim2.new(1, -20, 0, 34), BackgroundTransparency = 1
+}, panel)
+local findFruitButton = create("TextButton", {
+    Name = "FindFruits", Text = "FIND FRUITS", Font = Enum.Font.GothamBold,
+    TextSize = 12, TextColor3 = Color3.new(1,1,1),
+    BackgroundColor3 = Color3.fromRGB(34, 105, 110),
+    Size = UDim2.new(0.42, -3, 1, 0)
+}, locatorRow)
+create("UICorner", {CornerRadius = UDim.new(0, 7)}, findFruitButton)
+local nextFruitButton = create("TextButton", {
+    Name = "NextFruit", Text = "NEXT", Font = Enum.Font.GothamBold,
+    TextSize = 12, TextColor3 = Color3.new(1,1,1),
+    BackgroundColor3 = Color3.fromRGB(85, 92, 141),
+    Position = UDim2.new(0.42, 3, 0, 0), Size = UDim2.new(0.27, -6, 1, 0)
+}, locatorRow)
+create("UICorner", {CornerRadius = UDim.new(0, 7)}, nextFruitButton)
+local clearFruitButton = create("TextButton", {
+    Name = "ClearFruit", Text = "CLEAR", Font = Enum.Font.GothamBold,
+    TextSize = 12, TextColor3 = Color3.new(1,1,1),
+    BackgroundColor3 = Color3.fromRGB(106, 77, 80),
+    Position = UDim2.new(0.69, 3, 0, 0), Size = UDim2.new(0.31, -3, 1, 0)
+}, locatorRow)
+create("UICorner", {CornerRadius = UDim.new(0, 7)}, clearFruitButton)
+local locatorStatus = create("TextLabel", {
+    Name = "LocatorStatus",
+    Text = "LOCATOR: find nearby plant/fruit candidates",
+    Font = Enum.Font.Gotham, TextSize = 11,
+    TextColor3 = Color3.fromRGB(241, 219, 153),
+    TextXAlignment = Enum.TextXAlignment.Left, TextWrapped = true,
+    BackgroundTransparency = 1,
+    Position = UDim2.fromOffset(12, 284),
+    Size = UDim2.new(1, -24, 0, 26)
+}, panel)
+
 local scroll = create("ScrollingFrame", {
-    Name = "LogScroll", Position = UDim2.fromOffset(10, 261),
-    Size = UDim2.new(1, -20, 1, -291),
+    Name = "LogScroll", Position = UDim2.fromOffset(10, 314),
+    Size = UDim2.new(1, -20, 1, -344),
     BackgroundColor3 = Color3.fromRGB(11, 17, 25), BorderSizePixel = 0,
     ScrollBarThickness = 5, CanvasSize = UDim2.fromOffset(0, 500),
     ScrollingDirection = Enum.ScrollingDirection.Y
@@ -661,9 +698,272 @@ local function drawLogs()
     scroll.CanvasSize = UDim2.new(0, 0, 0, h + 15)
 end
 
+-- GARDEN FRUIT LOCATOR: on-demand visual discovery (no harvests / remote calls).
+local locatorCandidates = {}
+local locatorIndex = 0
+local locatorBusy = false
+local locatorHighlight = nil
+local locatorBillboard = nil
+local locatorGeneration = 0
+
+local function removeFruitMarker()
+    if locatorHighlight then pcall(function() locatorHighlight:Destroy() end) end
+    if locatorBillboard then pcall(function() locatorBillboard:Destroy() end) end
+    locatorHighlight, locatorBillboard = nil, nil
+end
+
+local function clearFruitLocator()
+    locatorGeneration = locatorGeneration + 1
+    locatorCandidates, locatorIndex = {}, 0
+    removeFruitMarker()
+    locatorReport = "Fruit Locator: cleared."
+    if locatorStatus then locatorStatus.Text = "LOCATOR: cleared. Press FIND FRUITS." end
+end
+
+local function cropOfName(raw)
+    local key = normalize(raw)
+    if knownCrops[key] then return key end
+    local simple = key:gsub(" plant$", ""):gsub(" crop$", "")
+    if knownCrops[simple] then return simple end
+    return nil
+end
+
+local function fruitAreaName(raw)
+    local key = normalize(raw)
+    return key == "fruits" or key == "fruit" or key == "fruit holder"
+        or key == "fruit model" or key == "fruit container"
+end
+
+local function cropAncestor(inst)
+    local current = inst
+    for _ = 1, 5 do
+        if current == nil or current == Workspace then return nil end
+        local crop = cropOfName(current.Name)
+        if crop then return crop end
+        current = current.Parent
+    end
+    return nil
+end
+
+local function markerPosition(inst)
+    if inst:IsA("BasePart") then return inst.Position end
+    if inst:IsA("Model") then
+        local ok, cf = pcall(function() return inst:GetPivot() end)
+        if ok then return cf.Position end
+    end
+    return nil
+end
+
+local function isOwnedByOtherPlayer(inst)
+    local current = inst
+    for _ = 1, 12 do
+        if not current or current == Workspace then break end
+        local key = normalize(current.Name)
+        if key:find("farm", 1, true) or key:find("garden", 1, true)
+           or key:find("plot", 1, true) then
+            local owner = safeAttribute(current, "OwnerUserId")
+                or safeAttribute(current, "OwnerId")
+                or safeAttribute(current, "OwnerName")
+                or safeAttribute(current, "Owner")
+            local v = current:FindFirstChild("Owner")
+            if owner == nil and v then
+                if v:IsA("ObjectValue") or v:IsA("StringValue")
+                   or v:IsA("IntValue") or v:IsA("NumberValue") then
+                    owner = v.Value
+                end
+            end
+            if owner ~= nil then
+                if typeof(owner) == "Instance" then
+                    return owner:IsA("Player") and owner ~= player
+                end
+                local textOwner = tostring(owner):lower()
+                return textOwner ~= player.Name:lower()
+                   and textOwner ~= tostring(player.UserId)
+            end
+        end
+        current = current.Parent
+    end
+    return false -- Ownership not verified; candidate is not safe to harvest.
+end
+
+local function ignoredLocatorObject(inst)
+    local current = inst
+    for _ = 1, 10 do
+        if not current or current == Workspace then break end
+        if current:IsA("Tool") or current:IsA("Accessory") then return true end
+        local key = normalize(current.Name)
+        if key == "pets" or key == "pet" or key == "npcs"
+            or key == "npc" or key == "enemies" or key == "enemy" then
+            return true
+        end
+        current = current.Parent
+    end
+    return false
+end
+
+local function selectFruitLocator(index)
+    removeFruitMarker()
+    if #locatorCandidates == 0 then
+        locatorStatus.Text = "No candidates. Try FIND near your plants."
+        return
+    end
+    locatorIndex = ((index - 1) % #locatorCandidates) + 1
+    local item = locatorCandidates[locatorIndex]
+    if not item.target or not item.target.Parent then
+        locatorStatus.Text = "Target changed or unloaded. Press FIND again."
+        return
+    end
+    local characterRoot = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
+    local currentPos = markerPosition(item.target)
+    local distance = currentPos and characterRoot
+        and math.floor((currentPos - characterRoot.Position).Magnitude + .5)
+        or item.distance
+    local ok, result = pcall(function()
+        local highlight = Instance.new("Highlight")
+        highlight.Name = "GAGTrialFruitLocatorHighlight"
+        highlight.Adornee = item.target
+        highlight.FillColor = Color3.fromRGB(245, 188, 54)
+        highlight.OutlineColor = Color3.fromRGB(255, 239, 129)
+        highlight.FillTransparency = .67
+        highlight.OutlineTransparency = 0
+        highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+        highlight.Parent = Workspace.CurrentCamera or Workspace
+        return highlight
+    end)
+    if ok then locatorHighlight = result end
+    local adornee = item.target:IsA("BasePart") and item.target
+        or item.target:FindFirstChildWhichIsA("BasePart", true)
+    if adornee then
+        local okBill, billboard = pcall(function()
+            local b = Instance.new("BillboardGui")
+            b.Name = "GAGTrialFruitLocatorTag"
+            b.Adornee = adornee
+            b.AlwaysOnTop = true
+            b.MaxDistance = 400
+            b.Size = UDim2.fromOffset(220, 52)
+            b.StudsOffsetWorldSpace = Vector3.new(0, 4, 0)
+            local text = Instance.new("TextLabel")
+            text.Size = UDim2.fromScale(1, 1)
+            text.BackgroundColor3 = Color3.fromRGB(28, 26, 19)
+            text.BackgroundTransparency = .1
+            text.TextColor3 = Color3.fromRGB(255, 229, 140)
+            text.TextScaled = false
+            text.TextSize = 13
+            text.TextWrapped = true
+            text.Font = Enum.Font.GothamBold
+            text.Text = item.crop .. " | " .. distance .. " studs\n" .. item.kind
+            text.Parent = b
+            b.Parent = screen
+            return b
+        end)
+        if okBill then locatorBillboard = billboard end
+    end
+    locatorStatus.Text = string.format("%d/%d %s | %d studs | %s",
+        locatorIndex, #locatorCandidates, item.crop, distance, item.kind)
+    locatorReport = string.format(
+        "Found=%d | Selected=%d | Crop=%s | Distance=%d studs | Type=%s\n"
+        .. "Visual candidate only; maturity, ownership and harvestability unverified.",
+        #locatorCandidates, locatorIndex, item.crop, distance, item.kind)
+end
+
+local function scanFruitLocator()
+    if locatorBusy or not running then return end
+    locatorBusy = true
+    clearFruitLocator()
+    locatorStatus.Text = "LOCATOR: scanning nearby visible plants..."
+    local generation = locatorGeneration
+    task.spawn(function()
+        local ok, err = pcall(function()
+            local charRoot = player.Character
+                and player.Character:FindFirstChild("HumanoidRootPart")
+            if not charRoot then
+                locatorStatus.Text = "Stand in your garden and try again."
+                locatorReport = "No HumanoidRootPart found."
+                return
+            end
+            local origin = charRoot.Position
+            local results, seen = {}, {}
+            local scanned, rejected = 0, 0
+            for i, obj in ipairs(Workspace:GetDescendants()) do
+                if not running or generation ~= locatorGeneration then return end
+                scanned = scanned + 1
+                if obj:IsA("Model") or obj:IsA("BasePart") then
+                    local crop = cropOfName(obj.Name)
+                    local kind
+                    if crop and obj:IsA("Model") then
+                        kind = "plant candidate"
+                    end
+                    local parent = obj.Parent
+                    if parent and fruitAreaName(parent.Name) then
+                        local ancestor = cropAncestor(parent.Parent)
+                        if ancestor then
+                            crop, kind = ancestor, "fruit candidate"
+                        end
+                    end
+                    if crop and kind and not seen[obj]
+                        and not ignoredLocatorObject(obj) then
+                        seen[obj] = true
+                        local pos = markerPosition(obj)
+                        local distance = pos and (pos - origin).Magnitude or 999999
+                        if distance <= 220 then
+                            if isOwnedByOtherPlayer(obj) then
+                                rejected = rejected + 1
+                            else
+                                local categories = knownCrops[crop]
+                                local traitHint = lastTrait and categories and categories[lastTrait]
+                                table.insert(results, {
+                                    target = obj, crop = crop,
+                                    distance = math.floor(distance + .5),
+                                    kind = kind, traitHint = traitHint == true
+                                })
+                            end
+                        end
+                    end
+                end
+                if i % 1200 == 0 then task.wait() end
+            end
+            if not running or generation ~= locatorGeneration then return end
+            table.sort(results, function(a,b)
+                if a.traitHint ~= b.traitHint then return a.traitHint end
+                if a.kind ~= b.kind then return a.kind == "fruit candidate" end
+                return a.distance < b.distance
+            end)
+            locatorCandidates = {}
+            for i=1, math.min(80, #results) do
+                locatorCandidates[i] = results[i]
+            end
+            locatorReport = string.format(
+                "Found=%d candidates within 220 studs (showing %d); scanned=%d; explicit-other-owner excluded=%d.\n"
+                .. "Matches are category hints only. Some plants may be invisible in low performance mode.",
+                #results, #locatorCandidates, scanned, rejected)
+            if #locatorCandidates > 0 then
+                selectFruitLocator(1)
+            else
+                locatorStatus.Text = "No candidates found; stand near a growing plant."
+            end
+            say("GARDEN LOCATOR: " .. #results .. " candidates detected; " .. rejected .. " other-owner excluded")
+            drawLogs()
+        end)
+        locatorBusy = false
+        if not ok and running then
+            locatorStatus.Text = "LOCATOR ERROR (see logs)"
+            locatorReport = "Locator error: " .. tostring(err)
+            say(locatorReport)
+            drawLogs()
+        end
+    end)
+end
+
+connect(findFruitButton.MouseButton1Click, scanFruitLocator)
+connect(nextFruitButton.MouseButton1Click, function()
+    if not locatorBusy then selectFruitLocator(locatorIndex + 1) end
+end)
+connect(clearFruitButton.MouseButton1Click, clearFruitLocator)
+
 local function cleanup()
     if not running then return end
     running = false
+    clearFruitLocator()
     for _, c in ipairs(connections) do pcall(function() c:Disconnect() end) end
     table.clear(connections)
     pcall(function() screen:Destroy() end)
@@ -678,6 +978,8 @@ connect(minimize.MouseButton1Click, function()
     status.Visible = not minimized
     buttons.Visible = not minimized
     sampleRow.Visible = not minimized
+    locatorRow.Visible = not minimized
+    locatorStatus.Visible = not minimized
     scroll.Visible = not minimized
     footer.Visible = not minimized
     panel.Size = minimized and UDim2.fromOffset(panelWidth, 41) or UDim2.fromOffset(panelWidth, panelHeight)
@@ -743,10 +1045,15 @@ local function selectedTool()
     local character = player.Character
     if character then
         for _, obj in ipairs(character:GetChildren()) do
-            if obj:IsA("Tool") then return obj, "equipped" end
+            if obj:IsA("Tool") then
+                local crop = detectCrop(obj)
+                if isToolFruit(obj, crop) then
+                    return obj, "equipped harvested-fruit candidate"
+                end
+            end
         end
     end
-    return nil, "Equip the disposable fruit you want to compare, then press SNAP A"
+    return nil, "SNAP A needs an equipped harvested fruit, not a Watering Can, pet, seed or gear."
 end
 
 local function snapshotValue(value)
@@ -876,7 +1183,7 @@ end)
 
 local function fullReport()
     return table.concat({
-        "GAG V9.5.1 TRIAL REPORT (READ ONLY)",
+        "GAG V9.5.2 TRIAL REPORT (READ ONLY)",
         report,
         "--- UI text witnesses (max 20) ---",
         table.concat(uiWitnesses, "\n"),
@@ -886,6 +1193,8 @@ local function fullReport()
         table.concat(protectionEvidence, "\n"),
         "--- Favorite A/B comparison ---",
         favoriteComparison,
+        "--- Garden fruit locator ---",
+        locatorReport,
         "--- Live logs ---",
         table.concat(logs, "\n")
     }, "\n")
@@ -990,7 +1299,7 @@ local function scanNow(forceWorld)
 end
 
 connect(scanButton.MouseButton1Click, function() task.spawn(scanNow, true) end)
-say("V9.5.1 started (read-only). Stand near Pharaoh; keep entrance HUD visible.")
+say("V9.5.2 started (read-only). Stand near Pharaoh; keep entrance HUD visible.")
 say("World text cache refreshes every 25s; UI/inventory refreshes every 4s.")
 drawLogs()
 task.spawn(function()
