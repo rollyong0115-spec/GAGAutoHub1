@@ -1,4 +1,4 @@
--- Grow a Garden V9.4.3 - Pharaoh Ancient Trials LIVE MONITOR
+-- Grow a Garden V9.4.4 - Pharaoh Ancient Trials LIVE MONITOR
 -- Read-only: NO FireServer / InvokeServer / simulated input / submission.
 -- Mobile/Delta friendly. Run while Pharaoh and the entrance HUD are visible.
 
@@ -51,7 +51,7 @@ local function say(line)
     local message = stamp .. " " .. tostring(line)
     table.insert(logs, message)
     while #logs > MAX_LOGS do table.remove(logs, 1) end
-    print("[GAG V9.4.3] " .. message)
+    print("[GAG V9.4.4] " .. message)
 end
 
 local function safeAttribute(instance, key)
@@ -102,23 +102,28 @@ local sortedCropNames = {}
 for name in pairs(knownCrops) do table.insert(sortedCropNames, name) end
 table.sort(sortedCropNames, function(a, b) return #a > #b end)
 
+-- Do not match crop words anywhere inside unrelated tool names.
+-- Only exact crop identity (or an explicit crop metadata field) is accepted.
 local function detectCrop(tool)
-    local fields = {"FruitName", "CropName", "PlantName", "ItemName", "FruitType", "CropType"}
-    local samples = {}
+    local fields = {"FruitName", "CropName", "PlantName", "FruitType", "CropType"}
     for _, key in ipairs(fields) do
         local value = safeAttribute(tool, key)
-        if type(value) == "string" and value ~= "" then table.insert(samples, normalize(value)) end
-    end
-    table.insert(samples, normalize(tool.Name))
-    for _, sample in ipairs(samples) do
-        local padded = " " .. sample .. " "
-        for _, crop in ipairs(sortedCropNames) do
-            if padded:find(" " .. crop .. " ", 1, true) then
-                return crop, knownCrops[crop], "crop list"
+        if type(value) == "string" then
+            local keyName = normalize(value)
+            if knownCrops[keyName] then
+                return keyName, knownCrops[keyName], "exact metadata"
             end
         end
     end
-    return nil, nil, "not in crop list"
+    -- Typical harvested display: [Wet, Chilled] Tomato [2.64kg].
+    -- Strip bracketed mutation/weight fields, never substring-match "Pumpkin Crate".
+    local clean = tostring(tool.Name or ""):gsub("%b[]", " ")
+    clean = clean:gsub("%s+[xX]%d+%s*$", "")
+    local crop = normalize(clean)
+    if knownCrops[crop] then
+        return crop, knownCrops[crop], "exact display name"
+    end
+    return nil, nil, "unrecognized crop"
 end
 
 local function fromMetadata(tool, category)
@@ -135,22 +140,34 @@ local function fromMetadata(tool, category)
     return false
 end
 
+-- Conservative harvested-crop filter. Never classify crates, drinks, pets
+-- or seeds as acceptable offerings just because they contain a crop word.
 local function isToolFruit(tool, crop)
-    local name = normalize(tool.Name)
-    if name:find(" seed ", 1, true) or name:match(" seed$") or name:match("^seed ") then return false end
-    if crop then return true end
-    for _, nonFruit in ipairs({"sprinkler", "shovel", "trowel", "crate", "potion", "gear", "pack"}) do
-        if name:find(nonFruit, 1, true) then return false end
+    local rawName = tostring(tool.Name or "")
+    local lowName = rawName:lower()
+    local padded = " " .. normalize(rawName) .. " "
+    local itemType = normalize(safeAttribute(tool, "ItemType") or safeAttribute(tool, "Type") or "")
+    if itemType == "pet" or itemType == "seed" or itemType == "gear"
+        or itemType == "egg" or itemType:find("pet", 1, true) then
+        return false
     end
-    local itemType = safeAttribute(tool, "ItemType") or safeAttribute(tool, "Type")
-    if type(itemType) == "string" then
-        local s = normalize(itemType)
-        if s == "seed" or s == "gear" or s == "pet" then return false end
-        if s == "fruit" or s == "crop" or s == "harvest" then return true end
+    if safeAttribute(tool, "IsPet") == true or safeAttribute(tool, "IsEgg") == true then
+        return false
     end
-    if safeAttribute(tool, "IsFruit") == true then return true end
-    if name:find("anubis egg", 1, true) then return false end
-    if name:match("%d+ ?kg") then return true end
+    if lowName:find("%[%s*age%s*%d+") then return false end
+    for _, word in ipairs({
+        "seed", "sprinkler", "shovel", "trowel", "crate", "lollipop",
+        "smoothie", "potion", "gear", "pack", "egg", "chest", "box",
+        "mouse", "soup", "juice", "cake"
+    }) do
+        if padded:find(" " .. word .. " ", 1, true) then return false end
+    end
+    if itemType == "fruit" or itemType == "crop" or itemType == "harvest"
+        or safeAttribute(tool, "IsFruit") == true then
+        return true
+    end
+    -- Weight is a useful candidate signal, not proof of an offerable fruit.
+    if lowName:find("%d+%.?%d*%s*kg") then return true end
     return false
 end
 
@@ -308,7 +325,7 @@ end
 
 local function scanFruitTools(trait)
     local stats = {total = 0, match = 0, protected = 0, wrong = 0, unknown = 0, other = 0}
-    local details = {}
+    local bins = {{}, {}, {}, {}}
     local roots = {player:FindFirstChildOfClass("Backpack"), player.Character}
     local seen = {}
     for _, root in ipairs(roots) do
@@ -320,32 +337,40 @@ local function scanFruitTools(trait)
                     if isToolFruit(obj, crop) then
                         stats.total = stats.total + 1
                         local protected, flag = readFlag(obj)
-                        local status
+                        local status, bin
                         if protected then
                             stats.protected = stats.protected + 1
-                            status = "PROTECTED (" .. flag .. ")"
+                            status, bin = "PROTECTED (" .. flag .. ")", 2
                         elseif not trait then
                             stats.unknown = stats.unknown + 1
-                            status = "UNKNOWN (trait not detected)"
+                            status, bin = "UNKNOWN (trait not detected)", 3
                         elseif (categories and categories[trait]) or fromMetadata(obj, trait) then
                             stats.match = stats.match + 1
-                            status = "MATCH (verify before offering)"
+                            status, bin = "POSSIBLE MATCH (not verified)", 1
                         elseif categories then
                             stats.wrong = stats.wrong + 1
-                            status = "OTHER CATEGORY"
+                            status, bin = "OTHER CATEGORY", 4
                         else
                             stats.unknown = stats.unknown + 1
-                            status = "UNKNOWN CROP"
+                            status, bin = "UNKNOWN CROP/TOOL", 3
                         end
-                        if #details < 70 then
-                            table.insert(details, string.format("%s -> %s", obj.Name, status))
-                        end
+                        table.insert(bins[bin], string.format("%s -> %s", obj.Name, status))
                     else
                         stats.other = stats.other + 1
                     end
                 end
             end
         end
+    end
+    -- Put possible matches, protected items and unknowns FIRST. The previous
+    -- first-70 inventory ordering hid crucial classification mistakes.
+    local details = {}
+    for _, bin in ipairs(bins) do
+        for _, entry in ipairs(bin) do
+            if #details >= 70 then break end
+            table.insert(details, entry)
+        end
+        if #details >= 70 then break end
     end
     return stats, details
 end
@@ -394,7 +419,7 @@ local header = create("Frame", {
 }, panel)
 create("UICorner", {CornerRadius = UDim.new(0, 12)}, header)
 local title = create("TextLabel", {
-    Text = "ANCIENT TRIALS  V9.4.3", Font = Enum.Font.GothamBold,
+    Text = "ANCIENT TRIALS  V9.4.4", Font = Enum.Font.GothamBold,
     TextSize = 15, TextColor3 = Color3.fromRGB(237, 249, 255),
     BackgroundTransparency = 1, TextXAlignment = Enum.TextXAlignment.Left,
     Position = UDim2.fromOffset(11, 0), Size = UDim2.new(1, -92, 1, 0)
@@ -522,7 +547,7 @@ end)
 
 local function fullReport()
     return table.concat({
-        "GAG V9.4.3 TRIAL REPORT (READ ONLY)",
+        "GAG V9.4.4 TRIAL REPORT (READ ONLY)",
         report,
         "--- UI text witnesses (max 20) ---",
         table.concat(uiWitnesses, "\n"),
@@ -625,7 +650,7 @@ local function scanNow(forceWorld)
 end
 
 connect(scanButton.MouseButton1Click, function() task.spawn(scanNow, true) end)
-say("V9.4.3 started (read-only). Stand near Pharaoh; keep entrance HUD visible.")
+say("V9.4.4 started (read-only). Stand near Pharaoh; keep entrance HUD visible.")
 say("World text cache refreshes every 25s; UI/inventory refreshes every 4s.")
 drawLogs()
 task.spawn(function()
