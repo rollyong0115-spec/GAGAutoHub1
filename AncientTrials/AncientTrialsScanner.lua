@@ -1,4 +1,4 @@
--- Grow a Garden V9.5.2 - Pharaoh Ancient Trials LIVE MONITOR
+-- Grow a Garden V9.5.3 - Pharaoh Ancient Trials LIVE MONITOR
 -- Read-only: NO FireServer / InvokeServer / simulated input / submission.
 -- Mobile/Delta friendly. Run while Pharaoh and the entrance HUD are visible.
 
@@ -54,7 +54,7 @@ local function say(line)
     local message = stamp .. " " .. tostring(line)
     table.insert(logs, message)
     while #logs > MAX_LOGS do table.remove(logs, 1) end
-    print("[GAG V9.5.2] " .. message)
+    print("[GAG V9.5.3] " .. message)
 end
 
 local function safeAttribute(instance, key)
@@ -523,14 +523,14 @@ for _, root in ipairs(guiRoots) do
     end)
 end
 local screen = Instance.new("ScreenGui")
-screen.Name = "GAGTrialMonitor952"
+screen.Name = "GAGTrialMonitor953"
 screen.ResetOnSpawn = false
 screen.IgnoreGuiInset = false
 screen.Enabled = true
 screen.DisplayOrder = 200
 screen.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 screen.Parent = parentGui
-print("[GAG Ancient Trials] V9.5.2 UI mounted in PlayerGui")
+print("[GAG Ancient Trials] V9.5.3 UI mounted in PlayerGui")
 
 local viewport = (Workspace.CurrentCamera and Workspace.CurrentCamera.ViewportSize) or Vector2.new(420, 760)
 local panelWidth = math.max(285, math.min(420, viewport.X - 20))
@@ -560,7 +560,7 @@ create("UICorner", {CornerRadius = UDim.new(0, 12)}, header)
 -- A dedicated full-width touch target prevents TextLabels from swallowing
 -- touch-start events on mobile executors. Keep X/minimize outside the handle.
 local title = create("TextButton", {
-    Name = "DragHandle", Text = "DRAG HERE - TRIALS V9.5.2",
+    Name = "DragHandle", Text = "DRAG HERE - TRIALS V9.5.3",
     Font = Enum.Font.GothamBold, TextSize = 13,
     TextColor3 = Color3.fromRGB(237, 249, 255),
     BackgroundTransparency = 1, AutoButtonColor = false,
@@ -705,6 +705,8 @@ local locatorBusy = false
 local locatorHighlight = nil
 local locatorBillboard = nil
 local locatorGeneration = 0
+local locatorSummary = "Search not run."
+local locatorExamples = {}
 
 local function removeFruitMarker()
     if locatorHighlight then pcall(function() locatorHighlight:Destroy() end) end
@@ -717,6 +719,8 @@ local function clearFruitLocator()
     locatorCandidates, locatorIndex = {}, 0
     removeFruitMarker()
     locatorReport = "Fruit Locator: cleared."
+    locatorSummary = "Cleared."
+    locatorExamples = {}
     if locatorStatus then locatorStatus.Text = "LOCATOR: cleared. Press FIND FRUITS." end
 end
 
@@ -801,6 +805,25 @@ local function ignoredLocatorObject(inst)
     return false
 end
 
+-- Only inspect the selected model for a visible collect/harvest prompt.
+-- It is a hint, not proof the item is mature or belongs to the player.
+local function selectedPromptHint(target)
+    local ok, desc = pcall(function() return target:GetDescendants() end)
+    if ok and desc then
+        for i, node in ipairs(desc) do
+            if i > 350 then break end
+            if node:IsA("ProximityPrompt") and node.Enabled then
+                local label = normalize((node.ActionText or "") .. " " .. (node.ObjectText or ""))
+                if label:find("harvest",1,true) or label:find("collect",1,true)
+                    or label:find("pick",1,true) then
+                    return "HARVEST PROMPT DETECTED"
+                end
+            end
+        end
+    end
+    return "Harvest prompt not detected"
+end
+
 local function selectFruitLocator(index)
     removeFruitMarker()
     if #locatorCandidates == 0 then
@@ -861,9 +884,12 @@ local function selectFruitLocator(index)
     locatorStatus.Text = string.format("%d/%d %s | %d studs | %s",
         locatorIndex, #locatorCandidates, item.crop, distance, item.kind)
     locatorReport = string.format(
-        "Found=%d | Selected=%d | Crop=%s | Distance=%d studs | Type=%s\n"
+        "%s\nSelected=%d/%d | Crop=%s | Distance=%d studs | Type=%s\n"
+        .. "%s\nTarget=%s\n%s\n"
         .. "Visual candidate only; maturity, ownership and harvestability unverified.",
-        #locatorCandidates, locatorIndex, item.crop, distance, item.kind)
+        locatorSummary, locatorIndex, #locatorCandidates, item.crop, distance,
+        item.kind, selectedPromptHint(item.target), item.target:GetFullName(),
+        table.concat(locatorExamples, "\n"))
 end
 
 local function scanFruitLocator()
@@ -923,25 +949,60 @@ local function scanFruitLocator()
                 if i % 1200 == 0 then task.wait() end
             end
             if not running or generation ~= locatorGeneration then return end
-            table.sort(results, function(a,b)
+            local fruitResults, plantResults = {}, {}
+            local parentWithFruit = {}
+            for _, entry in ipairs(results) do
+                if entry.kind == "fruit candidate" then
+                    table.insert(fruitResults, entry)
+                    local parent = entry.target.Parent
+                    if parent and parent.Parent then
+                        parentWithFruit[parent.Parent] = true
+                    end
+                else
+                    table.insert(plantResults, entry)
+                end
+            end
+            -- Don't count the same parent plant and its visible fruit twice.
+            local filteredPlants = {}
+            for _, entry in ipairs(plantResults) do
+                if not parentWithFruit[entry.target] then
+                    table.insert(filteredPlants, entry)
+                end
+            end
+            -- User needs a nearby fruit to harvest by hand: prefer fruit
+            -- candidates, fall back to plants only if no fruits were seen.
+            local showingFruits = #fruitResults > 0
+            local refined = showingFruits and fruitResults or filteredPlants
+            table.sort(refined, function(a,b)
+                if a.distance ~= b.distance then return a.distance < b.distance end
                 if a.traitHint ~= b.traitHint then return a.traitHint end
-                if a.kind ~= b.kind then return a.kind == "fruit candidate" end
-                return a.distance < b.distance
+                return a.crop < b.crop
             end)
             locatorCandidates = {}
-            for i=1, math.min(80, #results) do
-                locatorCandidates[i] = results[i]
+            for i=1, math.min(80, #refined) do
+                locatorCandidates[i] = refined[i]
             end
-            locatorReport = string.format(
-                "Found=%d candidates within 220 studs (showing %d); scanned=%d; explicit-other-owner excluded=%d.\n"
-                .. "Matches are category hints only. Some plants may be invisible in low performance mode.",
-                #results, #locatorCandidates, scanned, rejected)
+            locatorSummary = string.format(
+                "RawCandidates=%d FruitCandidates=%d PlantCandidates=%d "
+                .. "Displayed=%d/%d Scanned=%d OtherOwnerExcluded=%d Mode=%s",
+                #results, #fruitResults, #plantResults,
+                #locatorCandidates, #refined, scanned, rejected,
+                showingFruits and "FRUITS FIRST" or "PLANT FALLBACK")
+            locatorExamples = {}
+            for i=1, math.min(6,#refined) do
+                local item = refined[i]
+                table.insert(locatorExamples, string.format(
+                    "Nearby%d=%s %d studs %s", i, item.crop, item.distance,
+                    item.target:GetFullName()))
+            end
+            locatorReport = locatorSummary .. "\n" .. table.concat(locatorExamples, "\n")
             if #locatorCandidates > 0 then
                 selectFruitLocator(1)
             else
                 locatorStatus.Text = "No candidates found; stand near a growing plant."
             end
-            say("GARDEN LOCATOR: " .. #results .. " candidates detected; " .. rejected .. " other-owner excluded")
+            say("GARDEN LOCATOR: raw=" .. #results .. " fruits=" .. #fruitResults
+                .. " plants=" .. #plantResults .. " displayed=" .. #locatorCandidates)
             drawLogs()
         end)
         locatorBusy = false
@@ -1183,7 +1244,7 @@ end)
 
 local function fullReport()
     return table.concat({
-        "GAG V9.5.2 TRIAL REPORT (READ ONLY)",
+        "GAG V9.5.3 TRIAL REPORT (READ ONLY)",
         report,
         "--- UI text witnesses (max 20) ---",
         table.concat(uiWitnesses, "\n"),
@@ -1299,7 +1360,7 @@ local function scanNow(forceWorld)
 end
 
 connect(scanButton.MouseButton1Click, function() task.spawn(scanNow, true) end)
-say("V9.5.2 started (read-only). Stand near Pharaoh; keep entrance HUD visible.")
+say("V9.5.3 started (read-only). Stand near Pharaoh; keep entrance HUD visible.")
 say("World text cache refreshes every 25s; UI/inventory refreshes every 4s.")
 drawLogs()
 task.spawn(function()
