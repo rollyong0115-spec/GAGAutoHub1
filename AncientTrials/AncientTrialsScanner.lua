@@ -1,4 +1,4 @@
--- Grow a Garden V9.4.7 - Pharaoh Ancient Trials LIVE MONITOR
+-- Grow a Garden V9.4.8 - Pharaoh Ancient Trials LIVE MONITOR
 -- Read-only: NO FireServer / InvokeServer / simulated input / submission.
 -- Mobile/Delta friendly. Run while Pharaoh and the entrance HUD are visible.
 
@@ -51,7 +51,7 @@ local function say(line)
     local message = stamp .. " " .. tostring(line)
     table.insert(logs, message)
     while #logs > MAX_LOGS do table.remove(logs, 1) end
-    print("[GAG V9.4.7] " .. message)
+    print("[GAG V9.4.8] " .. message)
 end
 
 local function safeAttribute(instance, key)
@@ -376,22 +376,42 @@ local function scanFruitTools(trait)
 end
 
 -- UI setup: designed for phone portrait or landscape.
-local parentGui = nil
-pcall(function() if type(gethui) == "function" then parentGui = gethui() end end)
-if not parentGui then
-    local ok = pcall(function() parentGui = CoreGui end)
-    if not ok or not parentGui then parentGui = player:WaitForChild("PlayerGui") end
+-- Prefer PlayerGui for reliable display on mobile (including Delta).
+-- Some executors report a gethui()/CoreGui root that does not render.
+local playerGui = player:WaitForChild("PlayerGui")
+local parentGui = playerGui
+local guiRoots, visited = {}, {}
+local function addGuiRoot(root)
+    if root and not visited[root] then
+        visited[root] = true
+        table.insert(guiRoots, root)
+    end
 end
-
-local oldGui = parentGui:FindFirstChild("GAGTrialMonitor943")
-if oldGui then oldGui:Destroy() end
+addGuiRoot(playerGui)
+pcall(function() addGuiRoot(CoreGui) end)
+pcall(function()
+    if type(gethui) == "function" then addGuiRoot(gethui()) end
+end)
+for _, root in ipairs(guiRoots) do
+    pcall(function()
+        for _, existing in ipairs(root:GetChildren()) do
+            if existing:IsA("ScreenGui")
+                and (existing.Name:match("^GAGTrialMonitor")
+                  or existing.Name:match("^GAGTrialQuick")) then
+                existing:Destroy()
+            end
+        end
+    end)
+end
 local screen = Instance.new("ScreenGui")
-screen.Name = "GAGTrialMonitor943"
+screen.Name = "GAGTrialMonitor948"
 screen.ResetOnSpawn = false
-screen.IgnoreGuiInset = true
+screen.IgnoreGuiInset = false
+screen.Enabled = true
+screen.DisplayOrder = 200
 screen.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-local okParent = pcall(function() screen.Parent = parentGui end)
-if not okParent then screen.Parent = player:WaitForChild("PlayerGui") end
+screen.Parent = parentGui
+print("[GAG Ancient Trials] V9.4.8 UI mounted in PlayerGui")
 
 local viewport = (Workspace.CurrentCamera and Workspace.CurrentCamera.ViewportSize) or Vector2.new(420, 760)
 local panelWidth = math.max(285, math.min(420, viewport.X - 20))
@@ -421,7 +441,7 @@ create("UICorner", {CornerRadius = UDim.new(0, 12)}, header)
 -- A dedicated full-width touch target prevents TextLabels from swallowing
 -- touch-start events on mobile executors. Keep X/minimize outside the handle.
 local title = create("TextButton", {
-    Name = "DragHandle", Text = "DRAG HERE - TRIALS V9.4.7",
+    Name = "DragHandle", Text = "DRAG HERE - TRIALS V9.4.8",
     Font = Enum.Font.GothamBold, TextSize = 13,
     TextColor3 = Color3.fromRGB(237, 249, 255),
     BackgroundTransparency = 1, AutoButtonColor = false,
@@ -580,7 +600,7 @@ connect(UserInputService.InputEnded, endDrag)
 
 local function fullReport()
     return table.concat({
-        "GAG V9.4.7 TRIAL REPORT (READ ONLY)",
+        "GAG V9.4.8 TRIAL REPORT (READ ONLY)",
         report,
         "--- UI text witnesses (max 20) ---",
         table.concat(uiWitnesses, "\n"),
@@ -687,7 +707,7 @@ local function scanNow(forceWorld)
 end
 
 connect(scanButton.MouseButton1Click, function() task.spawn(scanNow, true) end)
-say("V9.4.7 started (read-only). Stand near Pharaoh; keep entrance HUD visible.")
+say("V9.4.8 started (read-only). Stand near Pharaoh; keep entrance HUD visible.")
 say("World text cache refreshes every 25s; UI/inventory refreshes every 4s.")
 drawLogs()
 task.spawn(function()
