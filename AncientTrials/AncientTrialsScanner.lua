@@ -1,4 +1,4 @@
--- Grow a Garden V9.4.6 - Pharaoh Ancient Trials LIVE MONITOR
+-- Grow a Garden V9.4.7 - Pharaoh Ancient Trials LIVE MONITOR
 -- Read-only: NO FireServer / InvokeServer / simulated input / submission.
 -- Mobile/Delta friendly. Run while Pharaoh and the entrance HUD are visible.
 
@@ -51,7 +51,7 @@ local function say(line)
     local message = stamp .. " " .. tostring(line)
     table.insert(logs, message)
     while #logs > MAX_LOGS do table.remove(logs, 1) end
-    print("[GAG V9.4.6] " .. message)
+    print("[GAG V9.4.7] " .. message)
 end
 
 local function safeAttribute(instance, key)
@@ -418,10 +418,14 @@ local header = create("Frame", {
     BackgroundColor3 = Color3.fromRGB(29, 54, 69), BorderSizePixel = 0, Active = true
 }, panel)
 create("UICorner", {CornerRadius = UDim.new(0, 12)}, header)
-local title = create("TextLabel", {
-    Text = "ANCIENT TRIALS  V9.4.6", Font = Enum.Font.GothamBold,
-    TextSize = 15, TextColor3 = Color3.fromRGB(237, 249, 255),
-    BackgroundTransparency = 1, TextXAlignment = Enum.TextXAlignment.Left,
+-- A dedicated full-width touch target prevents TextLabels from swallowing
+-- touch-start events on mobile executors. Keep X/minimize outside the handle.
+local title = create("TextButton", {
+    Name = "DragHandle", Text = "DRAG HERE - TRIALS V9.4.7",
+    Font = Enum.Font.GothamBold, TextSize = 13,
+    TextColor3 = Color3.fromRGB(237, 249, 255),
+    BackgroundTransparency = 1, AutoButtonColor = false,
+    Active = true, TextXAlignment = Enum.TextXAlignment.Left,
     Position = UDim2.fromOffset(11, 0), Size = UDim2.new(1, -92, 1, 0)
 }, header)
 local minimize = create("TextButton", {
@@ -522,32 +526,61 @@ connect(minimize.MouseButton1Click, function()
     minimize.Text = minimized and "+" or "-"
 end)
 
--- Mobile touch + mouse dragging.
-local dragStart, frameStart, dragInput
-connect(header.InputBegan, function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1
-        or input.UserInputType == Enum.UserInputType.Touch then
-        dragStart, frameStart, dragInput = input.Position, panel.Position, input
+-- Mobile drag-handle support (touch + mouse). Move the floating panel,
+-- not the scrolling log area. One active touch is expected on phones.
+local dragging = false
+local pointerStart, panelStart, activeType
+
+local function beginDrag(input)
+    local kind = input.UserInputType
+    if kind ~= Enum.UserInputType.Touch
+       and kind ~= Enum.UserInputType.MouseButton1 then return end
+    if dragging then return end
+    dragging = true
+    activeType = kind
+    pointerStart = Vector2.new(input.Position.X, input.Position.Y)
+    panelStart = panel.AbsolutePosition
+end
+
+local function moveDrag(input)
+    if not dragging or not pointerStart or not panelStart then return end
+    local kind = input.UserInputType
+    if activeType == Enum.UserInputType.Touch then
+        if kind ~= Enum.UserInputType.Touch then return end
+    else
+        if kind ~= Enum.UserInputType.MouseMovement
+           and kind ~= Enum.UserInputType.MouseButton1 then return end
     end
-end)
-connect(UserInputService.InputChanged, function(input)
-    if dragStart and (input == dragInput or (dragInput.UserInputType == Enum.UserInputType.MouseButton1
-        and input.UserInputType == Enum.UserInputType.MouseMovement)) then
-        local delta = input.Position - dragStart
-        panel.Position = UDim2.new(frameStart.X.Scale, frameStart.X.Offset + delta.X,
-            frameStart.Y.Scale, frameStart.Y.Offset + delta.Y)
+    local delta = Vector2.new(input.Position.X, input.Position.Y) - pointerStart
+    local camera = Workspace.CurrentCamera
+    local size = camera and camera.ViewportSize or Vector2.new(420, 760)
+    -- Keep the drag bar visible even when the GUI is minimized.
+    local x = math.clamp(panelStart.X + delta.X, 0, math.max(0, size.X - panel.AbsoluteSize.X))
+    local y = math.clamp(panelStart.Y + delta.Y, 0, math.max(0, size.Y - 41))
+    panel.Position = UDim2.fromOffset(math.floor(x + 0.5), math.floor(y + 0.5))
+end
+
+local function endDrag(input)
+    if not dragging then return end
+    local kind = input.UserInputType
+    if (activeType == Enum.UserInputType.Touch and kind == Enum.UserInputType.Touch)
+       or (activeType == Enum.UserInputType.MouseButton1
+          and kind == Enum.UserInputType.MouseButton1) then
+        dragging, pointerStart, panelStart, activeType = false, nil, nil, nil
     end
-end)
-connect(UserInputService.InputEnded, function(input)
-    if dragInput == input or (dragInput and dragInput.UserInputType == Enum.UserInputType.MouseButton1
-        and input.UserInputType == Enum.UserInputType.MouseButton1) then
-        dragStart, frameStart, dragInput = nil, nil, nil
-    end
-end)
+end
+
+connect(title.InputBegan, beginDrag)
+connect(header.InputBegan, beginDrag)
+connect(title.InputChanged, moveDrag)
+connect(header.InputChanged, moveDrag)
+connect(UserInputService.InputChanged, moveDrag)
+connect(UserInputService.TouchMoved, moveDrag)
+connect(UserInputService.InputEnded, endDrag)
 
 local function fullReport()
     return table.concat({
-        "GAG V9.4.6 TRIAL REPORT (READ ONLY)",
+        "GAG V9.4.7 TRIAL REPORT (READ ONLY)",
         report,
         "--- UI text witnesses (max 20) ---",
         table.concat(uiWitnesses, "\n"),
@@ -654,7 +687,7 @@ local function scanNow(forceWorld)
 end
 
 connect(scanButton.MouseButton1Click, function() task.spawn(scanNow, true) end)
-say("V9.4.6 started (read-only). Stand near Pharaoh; keep entrance HUD visible.")
+say("V9.4.7 started (read-only). Stand near Pharaoh; keep entrance HUD visible.")
 say("World text cache refreshes every 25s; UI/inventory refreshes every 4s.")
 drawLogs()
 task.spawn(function()
