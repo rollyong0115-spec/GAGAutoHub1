@@ -1,4 +1,4 @@
--- Grow a Garden V9.4.9 - Pharaoh Ancient Trials LIVE MONITOR
+-- Grow a Garden V9.5.0 - Pharaoh Ancient Trials LIVE MONITOR
 -- Read-only: NO FireServer / InvokeServer / simulated input / submission.
 -- Mobile/Delta friendly. Run while Pharaoh and the entrance HUD are visible.
 
@@ -23,6 +23,7 @@ local logs = {}
 local cachedWorldTexts = {}
 local report = "No scan yet"
 local fruitDetails = {}
+local protectionEvidence = {}
 local uiWitnesses = {}
 local lastTrait = nil
 local lastPoints = nil
@@ -51,7 +52,7 @@ local function say(line)
     local message = stamp .. " " .. tostring(line)
     table.insert(logs, message)
     while #logs > MAX_LOGS do table.remove(logs, 1) end
-    print("[GAG V9.4.9] " .. message)
+    print("[GAG V9.5.0] " .. message)
 end
 
 local function safeAttribute(instance, key)
@@ -60,15 +61,80 @@ local function safeAttribute(instance, key)
     return nil
 end
 
-local function readFlag(tool)
-    local keys = {"Favorited", "Favorite", "IsFavorite", "IsFavorited", "Protected", "IsProtected", "Locked", "IsLocked"}
-    for _, key in ipairs(keys) do
-        local v = safeAttribute(tool, key)
-        if v == true or tostring(v):lower() == "true" then return true, key end
-        local obj = tool:FindFirstChild(key, true)
-        if obj and obj:IsA("BoolValue") and obj.Value then return true, key end
+-- Detect protection evidence without assuming that missing flags mean safe.
+-- Favorite status can be stored outside a Tool; therefore "UNVERIFIED"
+-- remains the default when no readable evidence exists.
+local function isProtectionKey(key)
+    local keyName = normalize(key):gsub(" ", "")
+    return keyName:find("favorite", 1, true) ~= nil
+        or keyName:find("favourite", 1, true) ~= nil
+        or keyName == "locked" or keyName == "islocked"
+        or keyName == "protected" or keyName == "isprotected"
+        or keyName == "heartlocked" or keyName == "isheartlocked"
+end
+
+local function readProtectionBoolean(value)
+    if type(value) == "boolean" then return value end
+    if type(value) == "number" and (value == 0 or value == 1) then return value == 1 end
+    if type(value) == "string" then
+        local low = normalize(value)
+        if low == "true" or low == "yes" or low == "1" then return true end
+        if low == "false" or low == "no" or low == "0" then return false end
     end
-    return false, "no positive flag found"
+    return nil
+end
+
+local function readProtection(tool)
+    local positive, negative = {}, {}
+    local attributes = {}
+    local ok, result = pcall(function() return tool:GetAttributes() end)
+    if ok and type(result) == "table" then attributes = result end
+
+    for key, value in pairs(attributes) do
+        if isProtectionKey(key) then
+            local state = readProtectionBoolean(value)
+            if state == true then
+                table.insert(positive, "attr:" .. key)
+            elseif state == false then
+                table.insert(negative, "attr:" .. key)
+            end
+        end
+    end
+
+    -- A Tool can contain readable BoolValue/NumberValue/StringValue flags.
+    local okChildren, children = pcall(function() return tool:GetDescendants() end)
+    if okChildren and children then
+        for _, child in ipairs(children) do
+            if isProtectionKey(child.Name) and (
+                child:IsA("BoolValue") or child:IsA("IntValue")
+                or child:IsA("NumberValue") or child:IsA("StringValue")
+            ) then
+                local okValue, value = pcall(function() return child.Value end)
+                if okValue then
+                    local state = readProtectionBoolean(value)
+                    if state == true then
+                        table.insert(positive, "value:" .. child.Name)
+                    elseif state == false then
+                        table.insert(negative, "value:" .. child.Name)
+                    end
+                end
+            end
+        end
+    end
+
+    if #positive > 0 then return "FLAGGED", table.concat(positive, ", "), attributes end
+    if #negative > 0 then return "EXPLICIT_FALSE", table.concat(negative, ", "), attributes end
+    return "UNVERIFIED", "no recognized local flag", attributes
+end
+
+local function metadataSummary(attributes)
+    local keys = {}
+    for key in pairs(attributes) do table.insert(keys, tostring(key)) end
+    table.sort(keys)
+    if #keys == 0 then return "attributes: none" end
+    local shown = {}
+    for i = 1, math.min(#keys, 12) do shown[i] = keys[i] end
+    return "attributes: " .. table.concat(shown, ", ") .. (#keys > 12 and ", ..." or "")
 end
 
 -- Offline crop-category hints. Not authoritative for new or renamed crops.
@@ -338,10 +404,16 @@ local function detectTrial(texts)
 end
 
 local function scanFruitTools(trait)
-    local stats = {total = 0, match = 0, protected = 0, wrong = 0, unknown = 0, other = 0}
+    local stats = {
+        total = 0, match = 0, protected = 0, wrong = 0,
+        unknown = 0, other = 0, explicitFalse = 0, unverifiedProtection = 0
+    }
     local bins = {{}, {}, {}, {}}
+    local evidenceImportant, evidenceSamples = {}, {}
+    local sampleCrops = {}
     local roots = {player:FindFirstChildOfClass("Backpack"), player.Character}
     local seen = {}
+
     for _, root in ipairs(roots) do
         if root then
             for _, obj in ipairs(root:GetChildren()) do
@@ -350,11 +422,17 @@ local function scanFruitTools(trait)
                     local crop, categories = detectCrop(obj)
                     if isToolFruit(obj, crop) then
                         stats.total = stats.total + 1
-                        local protected, flag = readFlag(obj)
+                        local protection, proof, attrs = readProtection(obj)
+                        if protection == "EXPLICIT_FALSE" then
+                            stats.explicitFalse = stats.explicitFalse + 1
+                        elseif protection == "UNVERIFIED" then
+                            stats.unverifiedProtection = stats.unverifiedProtection + 1
+                        end
+
                         local status, bin
-                        if protected then
+                        if protection == "FLAGGED" then
                             stats.protected = stats.protected + 1
-                            status, bin = "PROTECTED (" .. flag .. ")", 2
+                            status, bin = "PROTECTED FLAG (" .. proof .. ")", 2
                         elseif not trait then
                             stats.unknown = stats.unknown + 1
                             status, bin = "UNKNOWN (trait not detected)", 3
@@ -368,7 +446,26 @@ local function scanFruitTools(trait)
                             stats.unknown = stats.unknown + 1
                             status, bin = "UNKNOWN CROP/TOOL", 3
                         end
-                        table.insert(bins[bin], string.format("%s -> %s", obj.Name, status))
+
+                        local protectionSuffix = protection == "UNVERIFIED"
+                            and " [FAVORITE UNVERIFIED]"
+                            or (protection == "EXPLICIT_FALSE" and " [LOCAL FLAG FALSE]" or "")
+                        table.insert(bins[bin], obj.Name .. " -> " .. status .. protectionSuffix)
+
+                        local auditLine = string.format(
+                            "%s | Protection=%s (%s) | %s",
+                            obj.Name, protection, proof, metadataSummary(attrs))
+                        if protection ~= "UNVERIFIED" or bin == 1 or bin == 3 then
+                            if #evidenceImportant < 18 then
+                                table.insert(evidenceImportant, auditLine)
+                            end
+                        elseif #evidenceSamples < 6 then
+                            local cropName = crop or normalize(obj.Name)
+                            if not sampleCrops[cropName] then
+                                sampleCrops[cropName] = true
+                                table.insert(evidenceSamples, auditLine)
+                            end
+                        end
                     else
                         stats.other = stats.other + 1
                     end
@@ -376,8 +473,8 @@ local function scanFruitTools(trait)
             end
         end
     end
-    -- Put possible matches, protected items and unknowns FIRST. The previous
-    -- first-70 inventory ordering hid crucial classification mistakes.
+
+    -- Highlight matches and unknowns rather than the first 70 backpack slots.
     local details = {}
     for _, bin in ipairs(bins) do
         for _, entry in ipairs(bin) do
@@ -386,7 +483,13 @@ local function scanFruitTools(trait)
         end
         if #details >= 70 then break end
     end
-    return stats, details
+    local evidence = {}
+    for _, row in ipairs(evidenceImportant) do table.insert(evidence, row) end
+    for _, row in ipairs(evidenceSamples) do table.insert(evidence, row) end
+    if #evidence == 0 then
+        table.insert(evidence, "No protection metadata found in harvested Tool candidates.")
+    end
+    return stats, details, evidence
 end
 
 -- UI setup: designed for phone portrait or landscape.
@@ -418,14 +521,14 @@ for _, root in ipairs(guiRoots) do
     end)
 end
 local screen = Instance.new("ScreenGui")
-screen.Name = "GAGTrialMonitor949"
+screen.Name = "GAGTrialMonitor950"
 screen.ResetOnSpawn = false
 screen.IgnoreGuiInset = false
 screen.Enabled = true
 screen.DisplayOrder = 200
 screen.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 screen.Parent = parentGui
-print("[GAG Ancient Trials] V9.4.9 UI mounted in PlayerGui")
+print("[GAG Ancient Trials] V9.5.0 UI mounted in PlayerGui")
 
 local viewport = (Workspace.CurrentCamera and Workspace.CurrentCamera.ViewportSize) or Vector2.new(420, 760)
 local panelWidth = math.max(285, math.min(420, viewport.X - 20))
@@ -455,7 +558,7 @@ create("UICorner", {CornerRadius = UDim.new(0, 12)}, header)
 -- A dedicated full-width touch target prevents TextLabels from swallowing
 -- touch-start events on mobile executors. Keep X/minimize outside the handle.
 local title = create("TextButton", {
-    Name = "DragHandle", Text = "DRAG HERE - TRIALS V9.4.9",
+    Name = "DragHandle", Text = "DRAG HERE - TRIALS V9.5.0",
     Font = Enum.Font.GothamBold, TextSize = 13,
     TextColor3 = Color3.fromRGB(237, 249, 255),
     BackgroundTransparency = 1, AutoButtonColor = false,
@@ -614,12 +717,14 @@ connect(UserInputService.InputEnded, endDrag)
 
 local function fullReport()
     return table.concat({
-        "GAG V9.4.9 TRIAL REPORT (READ ONLY)",
+        "GAG V9.5.0 TRIAL REPORT (READ ONLY)",
         report,
         "--- UI text witnesses (max 20) ---",
         table.concat(uiWitnesses, "\n"),
         "--- Fruit/tool details (max 70) ---",
         table.concat(fruitDetails, "\n"),
+        "--- Protection metadata audit (max 24) ---",
+        table.concat(protectionEvidence, "\n"),
         "--- Live logs ---",
         table.concat(logs, "\n")
     }, "\n")
@@ -680,17 +785,20 @@ local function scanNow(forceWorld)
             end
         end
         local trait, points, timer, traitSrc, pointsSrc = detectTrial(texts)
-        local stats, details = scanFruitTools(trait)
+        local stats, details, evidence = scanFruitTools(trait)
         fruitDetails = details
+        protectionEvidence = evidence
         local t = trait or "?"
         local p = points and tostring(points) or "?"
         local clock = timer or "?"
-        report = string.format("Trait=%s Points=%s/900 RotationCountdown=%s\nFruits=%d Matching=%d Protected=%d\nWrongCategory=%d Unknown=%d OtherTools=%d\nNote=Fruits are candidate harvest tools, not verified offerings; Protected counts observed flags only\nTraitSource=%s\nPointsSource=%s",
+        report = string.format("Trait=%s Points=%s/900 RotationCountdown=%s\nFruits=%d Matching=%d Protected=%d\nExplicitFalseFlags=%d ProtectionUnverified=%d\nWrongCategory=%d Unknown=%d OtherTools=%d\nNote=Fruit count means candidates only. ExplicitFalseFlags are not server-verified safe. ProtectionUnverified must not be auto-offered.\nTraitSource=%s\nPointsSource=%s",
             t, p, clock, stats.total, stats.match, stats.protected,
+            stats.explicitFalse, stats.unverifiedProtection,
             stats.wrong, stats.unknown, stats.other, traitSrc, pointsSrc)
         status.Text = string.format(
-            "REQUESTED: %s     ENTRANCE: %s/900\nNEXT TRAIT CHANGE: %s     READ ONLY\nFruits: %d  Matching*: %d\nProtected: %d  Wrong: %d  Unknown: %d\n*Matching = crop hints, NOT safe-to-submit\nUI sources: %s / %s",
+            "REQUESTED: %s    ENTRANCE: %s/900\nNEXT TRAIT CHANGE: %s    READ ONLY\nCandidates: %d  Possible match: %d\nFlagged: %d  Flag=false: %d\nFavorite unknown: %d  Wrong: %d  Crop unknown: %d\n*No match is automatically safe to submit\nUI sources: %s / %s",
             t, p, clock, stats.total, stats.match, stats.protected,
+            stats.explicitFalse, stats.unverifiedProtection,
             stats.wrong, stats.unknown,
             traitSrc ~= "none" and "FOUND" or "MISSING",
             pointsSrc ~= "none" and "FOUND" or "MISSING")
@@ -721,7 +829,7 @@ local function scanNow(forceWorld)
 end
 
 connect(scanButton.MouseButton1Click, function() task.spawn(scanNow, true) end)
-say("V9.4.9 started (read-only). Stand near Pharaoh; keep entrance HUD visible.")
+say("V9.5.0 started (read-only). Stand near Pharaoh; keep entrance HUD visible.")
 say("World text cache refreshes every 25s; UI/inventory refreshes every 4s.")
 drawLogs()
 task.spawn(function()
