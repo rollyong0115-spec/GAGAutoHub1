@@ -1,4 +1,4 @@
--- Grow a Garden V9.5.0 - Pharaoh Ancient Trials LIVE MONITOR
+-- Grow a Garden V9.5.1 - Pharaoh Ancient Trials LIVE MONITOR
 -- Read-only: NO FireServer / InvokeServer / simulated input / submission.
 -- Mobile/Delta friendly. Run while Pharaoh and the entrance HUD are visible.
 
@@ -24,6 +24,7 @@ local cachedWorldTexts = {}
 local report = "No scan yet"
 local fruitDetails = {}
 local protectionEvidence = {}
+local favoriteComparison = "No A/B comparison captured yet."
 local uiWitnesses = {}
 local lastTrait = nil
 local lastPoints = nil
@@ -52,7 +53,7 @@ local function say(line)
     local message = stamp .. " " .. tostring(line)
     table.insert(logs, message)
     while #logs > MAX_LOGS do table.remove(logs, 1) end
-    print("[GAG V9.5.0] " .. message)
+    print("[GAG V9.5.1] " .. message)
 end
 
 local function safeAttribute(instance, key)
@@ -521,14 +522,14 @@ for _, root in ipairs(guiRoots) do
     end)
 end
 local screen = Instance.new("ScreenGui")
-screen.Name = "GAGTrialMonitor950"
+screen.Name = "GAGTrialMonitor951"
 screen.ResetOnSpawn = false
 screen.IgnoreGuiInset = false
 screen.Enabled = true
 screen.DisplayOrder = 200
 screen.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 screen.Parent = parentGui
-print("[GAG Ancient Trials] V9.5.0 UI mounted in PlayerGui")
+print("[GAG Ancient Trials] V9.5.1 UI mounted in PlayerGui")
 
 local viewport = (Workspace.CurrentCamera and Workspace.CurrentCamera.ViewportSize) or Vector2.new(420, 760)
 local panelWidth = math.max(285, math.min(420, viewport.X - 20))
@@ -558,7 +559,7 @@ create("UICorner", {CornerRadius = UDim.new(0, 12)}, header)
 -- A dedicated full-width touch target prevents TextLabels from swallowing
 -- touch-start events on mobile executors. Keep X/minimize outside the handle.
 local title = create("TextButton", {
-    Name = "DragHandle", Text = "DRAG HERE - TRIALS V9.5.0",
+    Name = "DragHandle", Text = "DRAG HERE - TRIALS V9.5.1",
     Font = Enum.Font.GothamBold, TextSize = 13,
     TextColor3 = Color3.fromRGB(237, 249, 255),
     BackgroundTransparency = 1, AutoButtonColor = false,
@@ -603,9 +604,28 @@ local copyButton = create("TextButton", {
 }, buttons)
 create("UICorner", {CornerRadius = UDim.new(0, 8)}, copyButton)
 
+local sampleRow = create("Frame", {
+    Name = "FavCompareRow", Position = UDim2.fromOffset(10, 219),
+    Size = UDim2.new(1, -20, 0, 34), BackgroundTransparency = 1
+}, panel)
+local snapAButton = create("TextButton", {
+    Name = "SnapshotA", Text = "SNAP A",
+    Font = Enum.Font.GothamBold, TextSize = 13,
+    TextColor3 = Color3.new(1,1,1), BackgroundColor3 = Color3.fromRGB(82, 94, 135),
+    Size = UDim2.new(0.49, 0, 1, 0)
+}, sampleRow)
+create("UICorner", {CornerRadius = UDim.new(0, 8)}, snapAButton)
+local snapBButton = create("TextButton", {
+    Name = "SnapshotB", Text = "COMPARE B",
+    Font = Enum.Font.GothamBold, TextSize = 13,
+    TextColor3 = Color3.new(1,1,1), BackgroundColor3 = Color3.fromRGB(96, 105, 69),
+    Position = UDim2.new(0.51, 0, 0, 0), Size = UDim2.new(0.49, 0, 1, 0)
+}, sampleRow)
+create("UICorner", {CornerRadius = UDim.new(0, 8)}, snapBButton)
+
 local scroll = create("ScrollingFrame", {
-    Name = "LogScroll", Position = UDim2.fromOffset(10, 223),
-    Size = UDim2.new(1, -20, 1, -253),
+    Name = "LogScroll", Position = UDim2.fromOffset(10, 261),
+    Size = UDim2.new(1, -20, 1, -291),
     BackgroundColor3 = Color3.fromRGB(11, 17, 25), BorderSizePixel = 0,
     ScrollBarThickness = 5, CanvasSize = UDim2.fromOffset(0, 500),
     ScrollingDirection = Enum.ScrollingDirection.Y
@@ -657,6 +677,7 @@ connect(minimize.MouseButton1Click, function()
     minimized = not minimized
     status.Visible = not minimized
     buttons.Visible = not minimized
+    sampleRow.Visible = not minimized
     scroll.Visible = not minimized
     footer.Visible = not minimized
     panel.Size = minimized and UDim2.fromOffset(panelWidth, 41) or UDim2.fromOffset(panelWidth, panelHeight)
@@ -715,9 +736,147 @@ connect(UserInputService.InputChanged, moveDrag)
 connect(UserInputService.TouchMoved, moveDrag)
 connect(UserInputService.InputEnded, endDrag)
 
+-- Experimental A/B metadata comparison. No changes are sent to the game.
+-- User manually favorites/unfavorites a disposable fruit between snapshots.
+local firstSnapshot = nil
+local function selectedTool()
+    local character = player.Character
+    if character then
+        for _, obj in ipairs(character:GetChildren()) do
+            if obj:IsA("Tool") then return obj, "equipped" end
+        end
+    end
+    return nil, "Equip the disposable fruit you want to compare, then press SNAP A"
+end
+
+local function snapshotValue(value)
+    local kind = typeof(value)
+    if kind == "string" then return "string:" .. value end
+    if kind == "boolean" then return "bool:" .. tostring(value) end
+    if kind == "number" then return "number:" .. tostring(value) end
+    if kind == "Color3" then return "color:" .. tostring(value) end
+    if kind == "Vector3" then return "vector:" .. tostring(value) end
+    if kind == "BrickColor" then return "brickcolor:" .. tostring(value) end
+    return kind .. ":" .. tostring(value)
+end
+
+local function snapshotTool(tool)
+    local map = {}
+    local ok, attrs = pcall(function() return tool:GetAttributes() end)
+    if ok and type(attrs) == "table" then
+        for k, v in pairs(attrs) do map["attr:" .. tostring(k)] = snapshotValue(v) end
+    end
+    local okChildren, children = pcall(function() return tool:GetDescendants() end)
+    if okChildren and children then
+        local collected = 0
+        for _, child in ipairs(children) do
+            if child:IsA("BoolValue") or child:IsA("IntValue")
+                or child:IsA("NumberValue") or child:IsA("StringValue") then
+                collected = collected + 1
+                if collected > 80 then break end
+                local relative = child:GetFullName():gsub("^" .. tool:GetFullName():gsub("([^%w])","%%%1"), "")
+                local okValue, v = pcall(function() return child.Value end)
+                if okValue then map["value:" .. relative] = snapshotValue(v) end
+            end
+        end
+    end
+    local collection = game:GetService("CollectionService")
+    local okTags, tags = pcall(function() return collection:GetTags(tool) end)
+    if okTags and type(tags) == "table" then
+        for _, tag in ipairs(tags) do map["tag:" .. tostring(tag)] = "present" end
+    end
+    return {tool = tool, name = tool.Name, fields = map}
+end
+
+-- Print only small nonidentifying values. Large IDs and strings are redacted
+-- while still exposing whether a key changed.
+local function preview(v)
+    if v == nil then return "(missing)" end
+    if v:sub(1, 7) == "string:" then
+        local raw = v:sub(8)
+        if #raw > 24 or raw:find("%d%d%d%d%d%d%d%d") then
+            return "(string changed, redacted)"
+        end
+    end
+    if #v > 85 then return v:sub(1, 80) .. "..." end
+    return v
+end
+
+local function resolveSameTool(a)
+    if a.tool and a.tool.Parent then return a.tool end
+    local matches = {}
+    for _, root in ipairs({player:FindFirstChildOfClass("Backpack"), player.Character}) do
+        if root then
+            for _, obj in ipairs(root:GetChildren()) do
+                if obj:IsA("Tool") and obj.Name == a.name then
+                    table.insert(matches, obj)
+                end
+            end
+        end
+    end
+    if #matches == 1 then return matches[1] end
+    if #matches > 1 then return nil, "Multiple tools have that name; re-equip the original" end
+    return nil, "Original tool not found. Re-equip it and try again"
+end
+
+connect(snapAButton.MouseButton1Click, function()
+    local tool, why = selectedTool()
+    if not tool then
+        favoriteComparison = "SNAP A failed: " .. tostring(why)
+        say(favoriteComparison); drawLogs()
+        return
+    end
+    firstSnapshot = snapshotTool(tool)
+    local count = 0
+    for _ in pairs(firstSnapshot.fields) do count = count + 1 end
+    favoriteComparison = "A captured: " .. tool.Name .. " (" .. count .. " fields). "
+        .. "Now manually change its favorite state in the game's UI, then press COMPARE B."
+    say("SNAP A saved for " .. tool.Name .. " (" .. count .. " fields)")
+    drawLogs()
+end)
+
+connect(snapBButton.MouseButton1Click, function()
+    if not firstSnapshot then
+        favoriteComparison = "Press SNAP A on an equipped fruit first"
+        say(favoriteComparison); drawLogs(); return
+    end
+    local tool, why = resolveSameTool(firstSnapshot)
+    if not tool then
+        favoriteComparison = "COMPARE B failed: " .. tostring(why)
+        say(favoriteComparison); drawLogs(); return
+    end
+    local other = snapshotTool(tool)
+    local union = {}
+    for k in pairs(firstSnapshot.fields) do union[k] = true end
+    for k in pairs(other.fields) do union[k] = true end
+    local keys = {}
+    for k in pairs(union) do table.insert(keys, k) end
+    table.sort(keys)
+    local changed = {}
+    for _, k in ipairs(keys) do
+        local before, after = firstSnapshot.fields[k], other.fields[k]
+        if before ~= after then
+            table.insert(changed, k .. ": " .. preview(before) .. " -> " .. preview(after))
+        end
+    end
+    local rows = {"Tool=" .. firstSnapshot.name,
+        "ChangedFields=" .. tostring(#changed),
+        "No automatic favorite inference; review the changes below."}
+    if #changed == 0 then
+        table.insert(rows, "No Tool attribute, Value object, or tag changes were visible.")
+        table.insert(rows, "The favorite state may be stored in player data or inventory UI.")
+    end
+    for i = 1, math.min(30, #changed) do
+        table.insert(rows, changed[i])
+    end
+    favoriteComparison = table.concat(rows, "\n")
+    say("COMPARE B: " .. tostring(#changed) .. " changed fields for " .. firstSnapshot.name)
+    drawLogs()
+end)
+
 local function fullReport()
     return table.concat({
-        "GAG V9.5.0 TRIAL REPORT (READ ONLY)",
+        "GAG V9.5.1 TRIAL REPORT (READ ONLY)",
         report,
         "--- UI text witnesses (max 20) ---",
         table.concat(uiWitnesses, "\n"),
@@ -725,6 +884,8 @@ local function fullReport()
         table.concat(fruitDetails, "\n"),
         "--- Protection metadata audit (max 24) ---",
         table.concat(protectionEvidence, "\n"),
+        "--- Favorite A/B comparison ---",
+        favoriteComparison,
         "--- Live logs ---",
         table.concat(logs, "\n")
     }, "\n")
@@ -829,7 +990,7 @@ local function scanNow(forceWorld)
 end
 
 connect(scanButton.MouseButton1Click, function() task.spawn(scanNow, true) end)
-say("V9.5.0 started (read-only). Stand near Pharaoh; keep entrance HUD visible.")
+say("V9.5.1 started (read-only). Stand near Pharaoh; keep entrance HUD visible.")
 say("World text cache refreshes every 25s; UI/inventory refreshes every 4s.")
 drawLogs()
 task.spawn(function()
