@@ -22,7 +22,7 @@ local previous = nil
 pcall(function()
     if type(getgenv)=="function" then
         local env=getgenv()
-        previous=env.GAG_V122 or env.GAG_V12 or env.GAG_V71
+        previous=env.GAG_V122 or env.GAG_V121 or env.GAG_V12 or env.GAG_V71
     end
 end)
 if previous then
@@ -32,7 +32,7 @@ if previous then
     end
     for _,fn in ipairs(previous.cleanupCallbacks or {}) do pcall(fn) end
 end
-for _,name in ipairs({"GAG_AutoHub_V122","GAG_AutoHub_V12","GAG_AutoHub_V71"}) do
+for _,name in ipairs({"GAG_AutoHub_V122","GAG_AutoHub_V121","GAG_AutoHub_V12","GAG_AutoHub_V71"}) do
     local old=pg:FindFirstChild(name)
     if old then old:Destroy() end
 end
