@@ -1,5 +1,5 @@
 
--- GAG Auto Hub V12.2 | Anubis Ancient Trials | Delta Android / Xeno
+-- GAG Auto Hub V12.3 | Anubis Ancient Trials | Delta Android / Xeno
 -- All automations start OFF.
 -- Profile: set your uploaded Roblox image asset ID below.
 
@@ -22,7 +22,7 @@ local previous = nil
 pcall(function()
     if type(getgenv)=="function" then
         local env=getgenv()
-        previous=env.GAG_V122 or env.GAG_V121 or env.GAG_V12 or env.GAG_V71
+        previous=env.GAG_V123 or env.GAG_V122 or env.GAG_V121 or env.GAG_V12 or env.GAG_V71
     end
 end)
 if previous then
@@ -32,7 +32,7 @@ if previous then
     end
     for _,fn in ipairs(previous.cleanupCallbacks or {}) do pcall(fn) end
 end
-for _,name in ipairs({"GAG_AutoHub_V122","GAG_AutoHub_V121","GAG_AutoHub_V12","GAG_AutoHub_V71"}) do
+for _,name in ipairs({"GAG_AutoHub_V123","GAG_AutoHub_V122","GAG_AutoHub_V121","GAG_AutoHub_V12","GAG_AutoHub_V71"}) do
     local old=pg:FindFirstChild(name)
     if old then old:Destroy() end
 end
@@ -71,7 +71,7 @@ local state = {
 
 pcall(function()
     if type(getgenv)=="function" then
-        getgenv().GAG_V122=state
+        getgenv().GAG_V123=state
         getgenv().GAG_V12=state
     end
 end)
@@ -132,7 +132,7 @@ end
 -- MAIN GUI
 
 local gui = new("ScreenGui", {
-    Name = "GAG_AutoHub_V122",
+    Name = "GAG_AutoHub_V123",
     ResetOnSpawn = false,
     IgnoreGuiInset = true,
     DisplayOrder = 900
@@ -190,7 +190,7 @@ new("TextLabel", {
     Position = UDim2.fromOffset(64, 11),
     Size = UDim2.fromOffset(190, 22),
     BackgroundTransparency = 1,
-    Text = "GAG AUTO HUB V12.2",
+    Text = "GAG AUTO HUB V12.3",
     TextColor3 = C.white,
     Font = Enum.Font.GothamBold,
     TextSize = 15,
@@ -260,7 +260,7 @@ stroke(mini)
 new("TextLabel", {
     Size = UDim2.fromOffset(23, 19),
     Position = UDim2.new(1, -16, 0, -4),
-    Text = "V12.2",
+    Text = "V12.3",
     TextSize = 10,
     Font = Enum.Font.GothamBold,
     TextColor3 = C.white,
@@ -409,9 +409,10 @@ copyEvent.Position=UDim2.fromOffset(0,0)
 copyEvent.MouseButton1Click:Connect(function()
     local tr=state.trial
     local lines={
-        "GAG AUTO HUB V12.2 ANUBIS / ANCIENT TRIALS",
+        "GAG AUTO HUB V12.3 ANUBIS / ANCIENT TRIALS",
         "EventMode="..tostring(state.eventMode),
         "Category="..tostring(state.category),
+        "DisplayedRequest="..tostring(tr.category),
         "Gate="..tostring(tr.points).."/900",
         "RotationCountdown="..tostring(tr.timer),
         "RawTraitText="..tostring(tr.rawText),
@@ -505,7 +506,7 @@ toggle(
 
 -- INFO PAGE
 
-section("INFO", "ABOUT V12.2")
+section("INFO", "ABOUT V12.3")
 
 local info = new("TextLabel", {
     Size = UDim2.new(1, -5, 0, 190),
@@ -516,7 +517,7 @@ local info = new("TextLabel", {
     TextSize = 12,
     Font = Enum.Font.Gotham,
     Text = [[
-GAG AUTO HUB V12.2
+GAG AUTO HUB V12.3
 
 - Original V12 Farm/Shop features retained
 - New Pharaoh Ancient Trials observer
@@ -632,7 +633,7 @@ exit.MouseButton1Click:Connect(function()
     pcall(function()
         if type(getgenv)=="function" then
             local env=getgenv()
-            if env.GAG_V122==state then env.GAG_V122=nil end
+            if env.GAG_V123==state then env.GAG_V123=nil end
             if env.GAG_V12==state then env.GAG_V12=nil end
         end
     end)
@@ -995,7 +996,13 @@ local function readAncientTrials()
         "BubbleBillboard","BG","TextLabel")
     local progress=byPath(board,"ProgressBillboard","UpgradeBar","ProgressionLabel")
     local fullRaw=text and tostring(text.Text or "") or ""
-    local raw=fullRaw:lower()
+    -- Roblox RichText uses nested <b>/<font> tags around category names.
+    -- Strip markup before parsing, but retain the raw string for diagnostics.
+    local function plainRequest(value)
+        return tostring(value or ""):gsub("<[^>]+>", "")
+            :gsub("&nbsp;", " "):gsub("%s+", " "):lower()
+    end
+    local raw=plainRequest(fullRaw)
     local wanted=raw:match("looking%s+for%s+([%a]+)%s+plants")
     local requested
     for _,cat in ipairs(categories) do
@@ -1013,7 +1020,7 @@ local function readAncientTrials()
                 if str~="" then table.insert(tokens,str) end
             end
         end
-        local combined=table.concat(tokens," "):lower()
+        local combined=plainRequest(table.concat(tokens," "))
         wanted=combined:match("looking%s+for%s+([%a]+)%s+plants")
         for _,cat in ipairs(categories) do
             if wanted and cat:lower()==wanted then requested=cat;break end
@@ -1051,7 +1058,9 @@ local function readAncientTrials()
         -- A full gate may hide/replace the category text; don't call
         -- the event absent or reuse the previous category to collect.
         if points~=nil and points>=900 then
-            state.category=nil
+            -- Display the actual requested category, even though harvesting
+            -- must remain paused for a completed entrance gate.
+            state.category=requested
             state.eventMode="Pharaoh AncientTrials - GATE FULL"
             state.trial.collectionStatus="PAUSED: gate at 900/900"
         elseif requested then
@@ -1125,7 +1134,7 @@ local function selectLocator(i)
         return
     end
     local h=Instance.new("Highlight")
-    h.Name="V122FruitLocator"
+    h.Name="V123FruitLocator"
     h.FillColor=Color3.fromRGB(244,196,59)
     h.OutlineColor=Color3.fromRGB(255,235,147)
     h.FillTransparency=0.7
@@ -1136,7 +1145,7 @@ local function selectLocator(i)
     local part=entry.fruit:FindFirstChildWhichIsA("BasePart",true)
     if part then
         local b=Instance.new("BillboardGui")
-        b.Name="V122FruitName"
+        b.Name="V123FruitName"
         b.Adornee=part
         b.AlwaysOnTop=true
         b.Size=UDim2.fromOffset(200,45)
