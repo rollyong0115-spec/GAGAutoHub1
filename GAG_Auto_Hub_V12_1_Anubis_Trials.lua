@@ -1,5 +1,5 @@
 
--- GAG Auto Hub V12.1 | Anubis Ancient Trials | Delta Android / Xeno
+-- GAG Auto Hub V12.2 | Anubis Ancient Trials | Delta Android / Xeno
 -- All automations start OFF.
 -- Profile: set your uploaded Roblox image asset ID below.
 
@@ -22,7 +22,7 @@ local previous = nil
 pcall(function()
     if type(getgenv)=="function" then
         local env=getgenv()
-        previous=env.GAG_V121 or env.GAG_V12 or env.GAG_V71
+        previous=env.GAG_V122 or env.GAG_V12 or env.GAG_V71
     end
 end)
 if previous then
@@ -32,7 +32,7 @@ if previous then
     end
     for _,fn in ipairs(previous.cleanupCallbacks or {}) do pcall(fn) end
 end
-for _,name in ipairs({"GAG_AutoHub_V121","GAG_AutoHub_V12","GAG_AutoHub_V71"}) do
+for _,name in ipairs({"GAG_AutoHub_V122","GAG_AutoHub_V12","GAG_AutoHub_V71"}) do
     local old=pg:FindFirstChild(name)
     if old then old:Destroy() end
 end
@@ -50,7 +50,11 @@ local state = {
     category = nil,
     legacyCategory = nil,
     eventMode = "No event detected",
-    trial = {active=false, category=nil, points=nil, timer=nil, source="none", pointsSource="none"},
+    trial = {
+        active=false, category=nil, lastObservedCategory=nil, points=nil,
+        timer=nil, source="none", pointsSource="none",
+        rawText="(not detected)", rawProgress="(not detected)", collectionStatus="PAUSED"
+    },
     nextTrialCheck = 0,
     locatorReport = "Not scanned yet",
     favoriteReport = "Not tested yet",
@@ -67,7 +71,7 @@ local state = {
 
 pcall(function()
     if type(getgenv)=="function" then
-        getgenv().GAG_V121=state
+        getgenv().GAG_V122=state
         getgenv().GAG_V12=state
     end
 end)
@@ -128,7 +132,7 @@ end
 -- MAIN GUI
 
 local gui = new("ScreenGui", {
-    Name = "GAG_AutoHub_V121",
+    Name = "GAG_AutoHub_V122",
     ResetOnSpawn = false,
     IgnoreGuiInset = true,
     DisplayOrder = 900
@@ -186,7 +190,7 @@ new("TextLabel", {
     Position = UDim2.fromOffset(64, 11),
     Size = UDim2.fromOffset(190, 22),
     BackgroundTransparency = 1,
-    Text = "GAG AUTO HUB V12.1",
+    Text = "GAG AUTO HUB V12.2",
     TextColor3 = C.white,
     Font = Enum.Font.GothamBold,
     TextSize = 15,
@@ -256,7 +260,7 @@ stroke(mini)
 new("TextLabel", {
     Size = UDim2.fromOffset(23, 19),
     Position = UDim2.new(1, -16, 0, -4),
-    Text = "V12.1",
+    Text = "V12.2",
     TextSize = 10,
     Font = Enum.Font.GothamBold,
     TextColor3 = C.white,
@@ -405,11 +409,15 @@ copyEvent.Position=UDim2.fromOffset(0,0)
 copyEvent.MouseButton1Click:Connect(function()
     local tr=state.trial
     local lines={
-        "GAG AUTO HUB V12.1 ANUBIS / ANCIENT TRIALS",
+        "GAG AUTO HUB V12.2 ANUBIS / ANCIENT TRIALS",
         "EventMode="..tostring(state.eventMode),
         "Category="..tostring(state.category),
         "Gate="..tostring(tr.points).."/900",
         "RotationCountdown="..tostring(tr.timer),
+        "RawTraitText="..tostring(tr.rawText),
+        "RawProgressText="..tostring(tr.rawProgress),
+        "LastObservedCategory="..tostring(tr.lastObservedCategory),
+        "CollectionStatus="..tostring(tr.collectionStatus),
         "TraitSource="..tostring(tr.source),
         "PointsSource="..tostring(tr.pointsSource),
         "LegacyStage="..tostring(state.stage),
@@ -497,7 +505,7 @@ toggle(
 
 -- INFO PAGE
 
-section("INFO", "ABOUT V12.1")
+section("INFO", "ABOUT V12.2")
 
 local info = new("TextLabel", {
     Size = UDim2.new(1, -5, 0, 190),
@@ -508,7 +516,7 @@ local info = new("TextLabel", {
     TextSize = 12,
     Font = Enum.Font.Gotham,
     Text = [[
-GAG AUTO HUB V12.1
+GAG AUTO HUB V12.2
 
 - Original V12 Farm/Shop features retained
 - New Pharaoh Ancient Trials observer
@@ -624,7 +632,7 @@ exit.MouseButton1Click:Connect(function()
     pcall(function()
         if type(getgenv)=="function" then
             local env=getgenv()
-            if env.GAG_V121==state then env.GAG_V121=nil end
+            if env.GAG_V122==state then env.GAG_V122=nil end
             if env.GAG_V12==state then env.GAG_V12=nil end
         end
     end)
@@ -930,6 +938,13 @@ end
 
 local function eventCollect()
     if not state.category then return end
+    -- Never collect against an absent or completed Pharaoh objective.
+    -- Any unknown gate state must also fail closed.
+    if state.trial.active and (
+        state.trial.category ~= state.category
+        or state.trial.points == nil
+        or state.trial.points >= 900
+    ) then return end
     local farm=ownFarm()
     local plants=farm and farm:FindFirstChild("Important")
     plants=plants and plants:FindFirstChild("Plants_Physical")
@@ -979,22 +994,38 @@ local function readAncientTrials()
     local text=byPath(important,"TrialNPC","AncientTrailsBillboard",
         "BubbleBillboard","BG","TextLabel")
     local progress=byPath(board,"ProgressBillboard","UpgradeBar","ProgressionLabel")
-    local raw=text and tostring(text.Text or ""):lower() or ""
+    local fullRaw=text and tostring(text.Text or "") or ""
+    local raw=fullRaw:lower()
     local wanted=raw:match("looking%s+for%s+([%a]+)%s+plants")
     local requested
     for _,cat in ipairs(categories) do
         if wanted and cat:lower()==wanted then requested=cat;break end
     end
-    local points
-    if progress then
-        local a,b=tostring(progress.Text or ""):match("(%d[%d,]*)%s*/%s*(%d[%d,]*)")
-        if a and b and tonumber((b:gsub(",","")))==900 then
-            points=tonumber((a:gsub(",","")))
-        end
-    end
-    local timer
+    -- Some billboard variants separate 'Looking for', category, and
+    -- 'plants' into multiple TextLabels. Don't inspect our own UI.
     local npc=important and important:FindFirstChild("TrialNPC")
     local billboard=npc and npc:FindFirstChild("AncientTrailsBillboard")
+    if not requested and billboard then
+        local tokens={}
+        for _,obj in ipairs(billboard:GetDescendants()) do
+            if obj:IsA("TextLabel") or obj:IsA("TextButton") then
+                local str=tostring(obj.Text or "")
+                if str~="" then table.insert(tokens,str) end
+            end
+        end
+        local combined=table.concat(tokens," "):lower()
+        wanted=combined:match("looking%s+for%s+([%a]+)%s+plants")
+        for _,cat in ipairs(categories) do
+            if wanted and cat:lower()==wanted then requested=cat;break end
+        end
+    end
+    local points
+    local progressRaw=progress and tostring(progress.Text or "") or ""
+    local a,b=progressRaw:match("(%d[%d,]*)%s*/%s*(%d[%d,]*)")
+    if a and b and tonumber((b:gsub(",","")))==900 then
+        points=tonumber((a:gsub(",","")))
+    end
+    local timer
     if billboard then
         for _,obj in ipairs(billboard:GetDescendants()) do
             if obj:IsA("TextLabel") or obj:IsA("TextButton") then
@@ -1003,25 +1034,48 @@ local function readAncientTrials()
             end
         end
     end
-    local wasActive=state.trial.active
+    local hadTrialUI=state.trial.active
     local before=state.trial.category
-    state.trial.active=requested~=nil
+    local modeBefore=state.eventMode
+    local trialVisible=important~=nil and (text~=nil or progress~=nil)
+    state.trial.active=trialVisible
     state.trial.category=requested
+    if requested then state.trial.lastObservedCategory=requested end
     state.trial.points=points
     state.trial.timer=timer
     state.trial.source=text and text:GetFullName() or "none"
     state.trial.pointsSource=progress and progress:GetFullName() or "none"
-    if requested then
-        state.category=requested
-        state.eventMode="Pharaoh AncientTrials"
-        if before~=requested then
-            eventLog((before and "PHARAOH CATEGORY ROTATED: " or "PHARAOH CATEGORY: ")
+    state.trial.rawText=fullRaw:gsub("[\r\n]+"," "):sub(1,160)
+    state.trial.rawProgress=progressRaw:sub(1,70)
+    if trialVisible then
+        -- A full gate may hide/replace the category text; don't call
+        -- the event absent or reuse the previous category to collect.
+        if points~=nil and points>=900 then
+            state.category=nil
+            state.eventMode="Pharaoh AncientTrials - GATE FULL"
+            state.trial.collectionStatus="PAUSED: gate at 900/900"
+        elseif requested then
+            state.category=requested
+            state.eventMode="Pharaoh AncientTrials - request active"
+            state.trial.collectionStatus=(points~=nil)
+                and "AVAILABLE: toggle required to collect" or "PAUSED: points unavailable"
+        else
+            state.category=nil
+            state.eventMode="Pharaoh AncientTrials - request not shown"
+            state.trial.collectionStatus="PAUSED: category not detected"
+        end
+        if requested and before~=requested then
+            eventLog((before and "PHARAOH CATEGORY CHANGE: " or "PHARAOH CATEGORY: ")
                 .. (before and (before.." -> ") or "")..requested)
+        end
+        if modeBefore~=state.eventMode then
+            eventLog("TRIAL STATUS: "..state.eventMode)
         end
     else
         state.category=state.legacyCategory
         state.eventMode=state.legacyCategory and "Legacy Anubis" or "No event detected"
-        if wasActive then eventLog("Pharaoh trial UI not visible; collection needs recheck") end
+        state.trial.collectionStatus="PAUSED: no Pharaoh UI"
+        if hadTrialUI then eventLog("Pharaoh trial UI unavailable; switching to legacy observer") end
     end
 end
 for _,remoteName in ipairs({
@@ -1071,7 +1125,7 @@ local function selectLocator(i)
         return
     end
     local h=Instance.new("Highlight")
-    h.Name="V121FruitLocator"
+    h.Name="V122FruitLocator"
     h.FillColor=Color3.fromRGB(244,196,59)
     h.OutlineColor=Color3.fromRGB(255,235,147)
     h.FillTransparency=0.7
@@ -1082,7 +1136,7 @@ local function selectLocator(i)
     local part=entry.fruit:FindFirstChildWhichIsA("BasePart",true)
     if part then
         local b=Instance.new("BillboardGui")
-        b.Name="V121FruitName"
+        b.Name="V122FruitName"
         b.Adornee=part
         b.AlwaysOnTop=true
         b.Size=UDim2.fromOffset(200,45)
@@ -1264,12 +1318,15 @@ task.spawn(function()
             safeSubmit()
         end
         if state.trial.active then
+            local tr=state.trial
             eventInfo.Text=string.format(
-                "PHARAOH ANCIENT TRIALS\nRequested: %s | Gate: %s/900\nNext rotation: %s\nCollect requested: %s | Submit: LOCKED",
-                tostring(state.trial.category or "?"),
-                tostring(state.trial.points or "?"),
-                tostring(state.trial.timer or "?"),
-                state.switches.eventCollect and "ON" or "OFF")
+                "PHARAOH ANCIENT TRIALS\nStatus: %s\nRequested: %s | Gate: %s/900\nRotation: %s | Collection: %s\nSubmit: LOCKED",
+                state.eventMode:gsub("Pharaoh AncientTrials %- ",""),
+                tostring(tr.category or "(not shown)"),
+                tostring(tr.points or "?"),
+                tostring(tr.timer or "?"),
+                (tr.points and tr.points>=900) and "PAUSED"
+                    or (state.switches.eventCollect and tr.category and "ON" or "OFF/PAUSED"))
         else
             eventInfo.Text=string.format(
                 "Event: %s\nLegacy category: %s\nStage: %s  Weight: %s/%s kg\nSubmit: LOCKED",
