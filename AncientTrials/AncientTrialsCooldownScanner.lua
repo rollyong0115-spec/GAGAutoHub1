@@ -1,4 +1,4 @@
--- Grow a Garden | Ancient Trials Cooldown Inspector V1
+-- Grow a Garden | Ancient Trials Cooldown Inspector V2
 -- READ ONLY: no FireServer, InvokeServer, button activation, input simulation,
 -- harvesting, submitting, inventory mutation or teleportation.
 -- Works alongside the main GAG Auto Hub. Close X disconnects listeners.
@@ -62,7 +62,7 @@ local head=new("Frame",{
 },panel)
 corner(head,10)
 new("TextLabel",{
-    Text="ANCIENT TRIALS | COOLDOWN SCAN",Font=Enum.Font.GothamBold,
+    Text="TRIALS | COOLDOWN SCANNER V2",Font=Enum.Font.GothamBold,
     TextSize=13,TextColor3=Color3.fromRGB(230,242,255),
     BackgroundTransparency=1,Position=UDim2.fromOffset(8,3),
     Size=UDim2.new(1,-73,0,34),TextXAlignment=Enum.TextXAlignment.Left
@@ -174,7 +174,7 @@ local function snapshot()
     local trait=byPath(npc,"BubbleBillboard","BG","TextLabel")
     local points=byPath(important,"ProgressBoard","ProgressBillboard",
         "UpgradeBar","ProgressionLabel")
-    put("InspectorVersion","V1 - READ ONLY")
+    put("InspectorVersion","V2 - READ ONLY")
     put("SnapshotLocalTime",os.date("%H:%M:%S"))
     put("LastPassiveEvent",lastSignal)
     put("TrialModel",important and fullName(important) or "NOT FOUND")
@@ -184,6 +184,35 @@ local function snapshot()
 
     local remoteRoot=byPath(RS,"GameEvents","Events","AnubisEvent","AncientTrials")
     put("AncientTrialsRemotes",remoteRoot and fullName(remoteRoot) or "NOT FOUND")
+    -- Direct source of truth for the event's replicated state.
+    local traitAttr=remoteRoot and remoteRoot:GetAttribute("Trait")
+    local progressAttr=remoteRoot and remoteRoot:GetAttribute("Progress")
+    local maxProgress=remoteRoot and remoteRoot:GetAttribute("MaxProgress")
+    local cooldownUntil=remoteRoot and remoteRoot:GetAttribute("CooldownUntil")
+    put("EVENT Trait",traitAttr==nil and "NOT SET" or traitAttr)
+    put("EVENT Progress",progressAttr==nil and "NOT SET" or progressAttr)
+    put("EVENT MaxProgress",maxProgress==nil and "NOT SET" or maxProgress)
+    put("EVENT CooldownUntil",cooldownUntil==nil and "NOT SET" or cooldownUntil)
+    if type(cooldownUntil)=="number" then
+        if cooldownUntil==0 then
+            put("EVENT CooldownInterpretation","0: no future cooldown timestamp exposed; readiness unverified")
+        elseif cooldownUntil>=1000000000 then
+            -- Unix-timestamp interpretation only, no assumption about whether
+            -- the cooldown controls offering, claiming or entering.
+            local now=WS:GetServerTimeNow()
+            put("EVENT EpochTimestampCheck",
+                string.format("serverNow=%.0f; until=%.0f",now,cooldownUntil))
+            put("EVENT EpochSecondsRemaining",
+                math.max(0,math.ceil(cooldownUntil-now)))
+            put("EVENT CooldownInterpretation",
+                "possible epoch deadline (purpose requires manual A/B validation)")
+        else
+            put("EVENT CooldownInterpretation",
+                "positive non-epoch value; units unknown: compare before/after")
+        end
+    else
+        put("EVENT CooldownInterpretation","no numeric cooldown attribute visible")
+    end
     if remoteRoot then
         for _,obj in ipairs(remoteRoot:GetChildren()) do
             put("REMOTE "..obj.Name,obj.ClassName)
@@ -238,15 +267,23 @@ local function snapshot()
             local t=tostring(obj.Text or "")
             local str=t:lower()
             local name=fullName(obj):lower()
-            if #t>0 and #t<220 and (
-                relevantKey(str) or (name:find("ancient",1,true)
-                or name:find("trial",1,true) or name:find("anubis",1,true)
-                or name:find("pharaoh",1,true))
-            ) then
+            local inEventUI=name:find("ancient",1,true)
+                or name:find("trial",1,true)
+                or name:find("anubis",1,true)
+                or name:find("pharaoh",1,true)
+            local eventText=str:find("trial",1,true)
+                or str:find("anubis",1,true)
+                or str:find("pharaoh",1,true)
+                or str:find("temple",1,true)
+                or str:find("submit",1,true)
+                or str:find("cooldown until",1,true)
+            if #t>0 and #t<220 and (inEventUI or eventText) then
                 put("PLAYER GUI "..fullName(obj),t)
             end
         end
-        if relevantKey(obj.Name) then
+        if (fullName(obj):lower():find("trial",1,true)
+            or fullName(obj):lower():find("ancient",1,true)
+            or fullName(obj):lower():find("pharaoh",1,true)) then
             inspectValue(obj,"PLAYER VALUE")
             scanAttrs(obj,"PlayerGUI."..fullName(obj))
         end
@@ -258,7 +295,7 @@ local function snapshot()
 end
 local function formatSnapshot(s,label)
     local lines={
-        "GAG ANCIENT TRIALS COOLDOWN INSPECTOR V1 (READ ONLY)",
+        "GAG ANCIENT TRIALS COOLDOWN INSPECTOR V2 (READ ONLY)",
         label,
         "Entries="..tostring(s.count),
         "No remote calls were sent.",
@@ -284,7 +321,7 @@ local function compare(a,b,label)
     end
     table.sort(changed)
     local lines={
-        "GAG ANCIENT TRIALS COOLDOWN COMPARISON V1 (READ ONLY)",
+        "GAG ANCIENT TRIALS COOLDOWN COMPARISON V2 (READ ONLY)",
         label,
         "ChangedFields="..#changed,
         "NOTE: Category rotation countdown is not necessarily submission cooldown.",
@@ -402,6 +439,20 @@ end)
 
 local eventRoot=byPath(RS,"GameEvents","Events","AnubisEvent","AncientTrials")
 if eventRoot then
+    -- Watch the exact replicated cooldown attribute without sending requests.
+    local lastCooldown=eventRoot:GetAttribute("CooldownUntil")
+    connect(eventRoot:GetAttributeChangedSignal("CooldownUntil"),function()
+        if not alive then return end
+        local nextValue=eventRoot:GetAttribute("CooldownUntil")
+        say("COOLDOWN UNTIL changed: "..tostring(lastCooldown)
+            .." -> "..tostring(nextValue))
+        lastCooldown=nextValue
+        status.Text="Cooldown attribute changed! Press COMPARE B / COPY RESULTS."
+    end)
+    connect(eventRoot:GetAttributeChangedSignal("Progress"),function()
+        if not alive then return end
+        say("EVENT Progress -> "..tostring(eventRoot:GetAttribute("Progress")))
+    end)
     for _,name in ipairs({
         "TrialsSync","TrialsSubmitted","TrialsClaimed",
         "TrialsRewards","TrialsTeleported"
@@ -423,5 +474,5 @@ if eventRoot then
 else
     say("AncientTrials remotes unavailable; UI scan still works.")
 end
-say("Cooldown Inspector V1 ready. No submissions/harvests performed.")
+say("Cooldown Inspector V2 ready. No submissions/harvests performed.")
 scan("manual")
