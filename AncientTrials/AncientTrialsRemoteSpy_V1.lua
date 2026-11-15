@@ -76,7 +76,7 @@ local function datum(v)
         return "<"..kind..">"
     elseif type(v)=="string" then
         if #v>72 then return "<string "..#v.." chars withheld>" end
-        return string.format("%q",v:gsub("[\r\n]"," "))
+        return string.format("%q",(v:gsub("[\r\n]"," ")))
     elseif type(v)=="number" or type(v)=="boolean" or type(v)=="nil" then
         return tostring(v)
     end
@@ -278,29 +278,29 @@ elseif type(hookmetamethod)=="function" and
     type(getnamecallmethod)=="function" then
     local oldNamecall
     local function intercepted(self,...)
-        -- Keep spy code isolated from the real remote call.
-        pcall(function()
-            if not registry.enabled or
-                (self~=registry.target and self~=registry.legacy) then
-                return
-            end
-            local method=getnamecallmethod()
-            if method~="FireServer" and method~="InvokeServer" then return end
+        -- Capture varargs only in the vararg function itself. This keeps the
+        -- original method call intact and avoids Luau nested-vararg errors.
+        if registry.enabled and
+            (self==registry.target or self==registry.legacy) then
             local packed=table.pack(...)
-            local callback=registry.handler
-            if type(callback)=="function" then
-                task.defer(function()
-                    if registry.enabled and registry.handler==callback then
-                        pcall(callback,self,method,packed)
-                    end
-                end)
-            end
-        end)
+            pcall(function()
+                local method=getnamecallmethod()
+                if method~="FireServer" and method~="InvokeServer" then return end
+                local callback=registry.handler
+                if type(callback)=="function" then
+                    task.defer(function()
+                        if registry.enabled and registry.handler==callback then
+                            pcall(callback,self,method,packed)
+                        end
+                    end)
+                end
+            end)
+        end
         return oldNamecall(self,...)
     end
-    local wrapped=(type(newcclosure)=="function")
-        and newcclosure(intercepted) or intercepted
     local ok,err=pcall(function()
+        local wrapped=(type(newcclosure)=="function")
+            and newcclosure(intercepted) or intercepted
         oldNamecall=hookmetamethod(game,"__namecall",wrapped)
     end)
     if ok and type(oldNamecall)=="function" then
