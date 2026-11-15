@@ -1077,7 +1077,7 @@ local function selectLocator(i)
     h.FillTransparency=0.7
     h.DepthMode=Enum.HighlightDepthMode.AlwaysOnTop
     h.Adornee=entry.fruit
-    h.Parent=gui
+    h.Parent=workspace.CurrentCamera or workspace
     marker=h
     local part=entry.fruit:FindFirstChildWhichIsA("BasePart",true)
     if part then
@@ -1157,7 +1157,9 @@ local function equippedFruit()
     if not char then return nil end
     for _,tool in ipairs(char:GetChildren()) do
         if tool:IsA("Tool") and tool.Name:lower():find("%d+%.?%d*%s*kg") then
-            local key=normalizeCrop(tool.Name):gsub("%s+%d+%.?%d*%s*kg.*$","")
+            -- Strip [mutations] and [weight] before exact crop matching.
+            -- Don't accidentally select Watering Cans or other gear.
+            local key=normalizeCrop(tool.Name:gsub("%b[]",""))
             if knownCrops[key] then return tool end
         end
     end
