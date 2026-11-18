@@ -141,7 +141,7 @@ end
 -- MAIN GUI
 
 local gui = new("ScreenGui", {
-    Name = "GAG_AutoHub_V124",
+    Name = "GAG_AutoHub_V125",
     ResetOnSpawn = false,
     IgnoreGuiInset = true,
     DisplayOrder = 900
@@ -199,7 +199,7 @@ new("TextLabel", {
     Position = UDim2.fromOffset(64, 11),
     Size = UDim2.fromOffset(190, 22),
     BackgroundTransparency = 1,
-    Text = "GAG AUTO HUB V12.4",
+    Text = "GAG AUTO HUB V12.5",
     TextColor3 = C.white,
     Font = Enum.Font.GothamBold,
     TextSize = 15,
@@ -269,7 +269,7 @@ stroke(mini)
 new("TextLabel", {
     Size = UDim2.fromOffset(23, 19),
     Position = UDim2.new(1, -16, 0, -4),
-    Text = "V12.4",
+    Text = "V12.5",
     TextSize = 10,
     Font = Enum.Font.GothamBold,
     TextColor3 = C.white,
@@ -565,7 +565,7 @@ toggle(
 
 -- INFO PAGE
 
-section("INFO", "ABOUT V12.4")
+section("INFO", "ABOUT V12.5")
 
 local info = new("TextLabel", {
     Size = UDim2.new(1, -5, 0, 190),
@@ -576,15 +576,16 @@ local info = new("TextLabel", {
     TextSize = 12,
     Font = Enum.Font.Gotham,
     Text = [[
-GAG AUTO HUB V12.4
+GAG AUTO HUB V12.5
 
 - Original V12 Farm/Shop features retained
-- New Pharaoh Ancient Trials observer
-- Live requested crop, points and countdown
+- Pharaoh event category, gate and temple phases
 - Matching-fruit collection from owned farm
-- Auto submit LOCKED pending safety tests
+- OPTIONAL Auto Submit: captured server All mode
+- Two taps required; all toggles OFF by default
+- Safety: stop at 900; slow retries; halt on failure
+- Favorite/inventory protection is NOT verified
 - Fruit locator and favorite A/B checker
-- All automation toggles OFF by default
 - Minimize, Copy Results and Close X
 
 To use your own picture, set
@@ -692,7 +693,7 @@ exit.MouseButton1Click:Connect(function()
     pcall(function()
         if type(getgenv)=="function" then
             local env=getgenv()
-            if env.GAG_V124==state then env.GAG_V124=nil end
+            if env.GAG_V125==state then env.GAG_V125=nil end
             if env.GAG_V12==state then env.GAG_V12=nil end
         end
     end)
